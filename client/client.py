@@ -10,13 +10,16 @@ import logging
 import pyaudio
 import math
 import time
+import threading
 import requests
+import datetime
 import numpy as np
 import shutil
 import signal
 # import infra
 import json
 from hardware import OctavioHardware
+from config import DO_RECORD, DO_HEARTBEAT
 import utils
 with log_utils.no_stderr():
     from basic_pitch import build_icassp_2022_model_path, FilenameSuffix
@@ -58,8 +61,10 @@ class OctavioClient:
 
     # server_url = 'http://127.0.0.1:5001'
     server_url = 'http://octavio-server.mit.edu:5001'
-    endpoint_url = '/piano'
-    request_url = f'{server_url}{endpoint_url}'
+    midi_endpoint_url = '/piano'
+    heartbeat_endpoint_url = '/heartbeat'
+    midi_request_url = f'{server_url}{midi_endpoint_url}'
+    heartbeat_request_url = f'{server_url}{heartbeat_endpoint_url}'
 
     with log_utils.no_stderr():
         audio = pyaudio.PyAudio()
@@ -138,9 +143,14 @@ class OctavioClient:
         logger.info("System initialized successfully")
         logger.info(f"System starting session is {self.session}")
 
+        # heartbeat
+        self.heartbeat_thread = threading.Thread(target = self.heartbeat)
+        self.exit_flag = threading.Event()
+
     def on_shutdown(self):
         logger.info('System shutting down, performing hardware teardown')
         self.hardware.deactivate_light()
+        self.exit_flag.set()
         sys.exit(0)
 
     def create_new_session(self):
@@ -239,7 +249,7 @@ class OctavioClient:
             for i in range(self.num_server_attempts):
                 try:
                     r = requests.post(
-                        self.request_url,
+                        self.midi_request_url,
                         json=request_data,
                         headers=headers
                     )
@@ -270,17 +280,47 @@ class OctavioClient:
         return stream
 
     def run(self):
+        logger.info("Client running")
         while True:
             self.refresh_client_state()
-            if self.stream is None and self.is_recording:
+            if self.stream is None and self.is_recording and DO_RECORD:
                 logger.info("System starting a new audio stream")
                 self.stream = self.record_audio()
             elif self.end_stream_flag:
                 self.end_stream_flag = False
                 self.end_stream()
+    
+    def run_heartbeat(self):
+        self.heartbeat_thread.start()
+    
+    def heartbeat(self):
+        logger.info("Heartbeat script running")
+        while not self.exit_flag.wait(timeout=30):
+            logger.info("Sending heartbeat")
+            request_data = {
+                'instrument_id': self.instrument_id,
+                'time': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            headers = {
+                'Content-Type': 'application/json'
+            }
+            try:
+                r = requests.post(
+                    self.heartbeat_request_url,
+                    json=request_data,
+                    headers=headers
+                )
+            except Exception as e:
+                logger.info("Failed to send heartbeat")
+            else:
+                logger.info("Successfully sent heartbeat")
+                
+        logger.info("Heartbeat script exiting")
 
 if __name__ == '__main__':
     ...
 
     client = OctavioClient()
+    if DO_HEARTBEAT:
+        client.run_heartbeat()
     client.run()

@@ -9,7 +9,7 @@ User=${CLIENT_USERNAME}
 WorkingDirectory=${OCTAVIO_PROJECT_PATH}/client
 
 # Use the Python interpreter inside the venv
-ExecStart=${USER_DIRECTORY}/.envs/octavio/bin/python ${OCTAVIO_PROJECT_PATH}/client/client.py
+ExecStart=${USER_DIRECTORY}/.envs/octavio/bin/python3.10 ${OCTAVIO_PROJECT_PATH}/client/client.py
 
 # (Optional but good practice)
 Environment="PATH=${USER_DIRECTORY}/.envs/octavio/bin:/usr/bin"
