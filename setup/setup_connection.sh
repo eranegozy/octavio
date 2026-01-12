@@ -3,11 +3,12 @@ set -e
 
 # Setting up useful variables
 
+export SUDO_USER="eric"
 export SERVER_USERNAME="ayyub"
 export SERVER_HOSTNAME="octavio-server.mit.edu"
-export CLIENT_USERNAME="yubzak"
+export CLIENT_USERNAME="eric"
 export USER_DIRECTORY="/home/$CLIENT_USERNAME"
-export OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/code/octavio"
+export OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/octavio"
 
 # Establish device information
 
@@ -106,7 +107,7 @@ sudo apt install -y autossh
 
 echo "Establishing tunnel to lab server"
 TUNNEL_SERVICE_NAME="lab-tunnel"
-sudo -E envsubst < "$OCTAVIO_PROJECT_PATH/setup/tunnel_template.txt" > /etc/systemd/system/$TUNNEL_SERVICE_NAME.service
+envsubst < "$OCTAVIO_PROJECT_PATH/setup/tunnel_template.txt" | sudo tee /etc/systemd/system/$TUNNEL_SERVICE_NAME.service > /dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable $TUNNEL_SERVICE_NAME.service
 sudo systemctl start $TUNNEL_SERVICE_NAME.service

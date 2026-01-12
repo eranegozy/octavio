@@ -3,11 +3,12 @@ set -e
 
 # Setting up useful variables
 
+export SUDO_USER="eric"
 export SERVER_USERNAME="ayyub"
 export SERVER_HOSTNAME="octavio-server.mit.edu"
-export CLIENT_USERNAME="yubzak"
+export CLIENT_USERNAME="eric"
 export USER_DIRECTORY="/home/$CLIENT_USERNAME"
-export OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/code/octavio"
+export OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/octavio"
 
 # Establish device information
 
@@ -30,13 +31,14 @@ echo
 
 echo "Constructing virtual environment"
 mkdir -p $USER_DIRECTORY/.envs
-python3 -m venv $USER_DIRECTORY/.envs/octavio/
+python3.10 -m venv $USER_DIRECTORY/.envs/octavio/
 sudo chown -R $CLIENT_USERNAME:$CLIENT_USERNAME $USER_DIRECTORY/.envs/
 
 echo
 
 echo "Populating virtual environment"
 source $USER_DIRECTORY/.envs/octavio/bin/activate
+python3.10 -m pip install --upgrade pip setuptools wheel
 pip install -r "$OCTAVIO_PROJECT_PATH/client/client_requirements.txt"
 
 echo
@@ -52,7 +54,7 @@ echo
 
 echo "Creating and activating client service"
 CLIENT_SERVICE_NAME="octavio"
-sudo -E envsubst < "$OCTAVIO_PROJECT_PATH/setup/client_template.txt" > /etc/systemd/system/$CLIENT_SERVICE_NAME.service
+envsubst < "$OCTAVIO_PROJECT_PATH/setup/client_template.txt" | sudo tee /etc/systemd/system/$CLIENT_SERVICE_NAME.service > /dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable $CLIENT_SERVICE_NAME.service
 sudo systemctl start $CLIENT_SERVICE_NAME.service
