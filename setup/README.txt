@@ -11,6 +11,7 @@ CLIENT SETUP
     3a. may need to generate ssh key if you want to push changes from pi
 4. in setup_connection.sh and setup_installation.sh, change variables to correct values
     4a. look at SUDO_USER to OCTAVIO_PROJECT_PATH
+    4b. also look at admin_scripts/refresh_client.sh if you care about that
 5. run setup_connection.sh
     5a. ayyub@octavio-server.mit.edu password is "ayyub"
 6. downgrade python version (tflite-runtime latest version only works up to python 3.10)
