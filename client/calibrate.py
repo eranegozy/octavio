@@ -11,16 +11,38 @@ import pyaudio
 import scipy.ndimage
 import log_utils
 
-def record_audio(record_seconds):
+def find_recording_device_index():
+    with log_utils.no_stderr():
+        p = pyaudio.PyAudio()
+    for i in range(p.get_device_count()):
+        dev = p.get_device_info_by_index(i)
+        if dev['maxInputChannels'] > 0:
+            return i
+    return -1
+
+def write_recording_device_index(device_index):
+    with open('./infra.json', 'r') as f:
+        j = json.load(f)
+
+    j['RECORDING_DEVICE_INDEX'] = device_index
+
+    with open('./infra.json', 'w') as f:
+        json.dump(j, f)
+        f.write('\n')
+
+def record_audio(record_seconds=30, device_index=None):
     CHUNK = 1024
-    DEVICE_INDEX = 1
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
     RATE = 22050
 
     with log_utils.no_stderr():
         p = pyaudio.PyAudio()
-    stream = p.open(input=True, input_device_index=DEVICE_INDEX, format=FORMAT, channels=CHANNELS, rate=RATE)
+    if device_index is None:
+        device_index = find_recording_device_index()
+        if device_index == -1:
+            raise RuntimeError("Could not find recording device")
+    stream = p.open(input=True, input_device_index=device_index, format=FORMAT, channels=CHANNELS, rate=RATE)
 
     print('Recording...')
     full_recording = np.empty(RATE * record_seconds)
@@ -51,12 +73,12 @@ def chunk_and_rms_sound(full_sound, window_size=2048):
         rmses.append(window_rms)
     return rmses
 
-def measure_calibration():
+def measure_calibration(device_index = None):
     noise_trial_duration = 30
     signal_trial_duration = 60
 
     input('Measuring noise: hit [ENTER] to start')
-    noise_trial = record_audio(record_seconds=noise_trial_duration)
+    noise_trial = record_audio(record_seconds=noise_trial_duration, device_index = device_index)
     noise_rmses = chunk_and_rms_sound(full_sound=noise_trial)
     noise_quartiles = statistics.quantiles(noise_rmses)
     noise_mean = statistics.mean(noise_rmses)
@@ -66,7 +88,7 @@ def measure_calibration():
     print(f'Noise mean and stdev: {noise_mean}, {noise_std}')
 
     input('Measuring signal: hit [ENTER] to start')
-    signal_trial = record_audio(record_seconds=signal_trial_duration)
+    signal_trial = record_audio(record_seconds=signal_trial_duration, device_index=device_index)
     signal_rmses = chunk_and_rms_sound(full_sound=signal_trial)
     baseline_signal_threshold = 2.0
     valid_signal_rmses = [rms for rms in signal_rmses if rms >= baseline_signal_threshold]
@@ -132,6 +154,7 @@ def denoise_signal(signal, noise_quartiles, signal_quartiles):
 
 if __name__ == '__main__':
     ...
-
+    device_index = find_recording_device_index()
+    write_recording_device_index(device_index)
     noise_quartiles, noise_mean, noise_std, signal_quartiles, signal_mean, signal_std = measure_calibration()
     apply_calibration(noise_quartiles, noise_mean, noise_std, signal_quartiles, signal_mean, signal_std)
