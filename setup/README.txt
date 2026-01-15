@@ -14,9 +14,12 @@ CLIENT SETUP
     4b. also look at admin_scripts/refresh_client.sh if you care about that
 5. run setup_connection.sh
 6. downgrade python version (tflite-runtime latest version only works up to python 3.10)
-    6a. install pyenv https://www.samwestby.com/tutorials/rpi-pyenv
-    6b. may need to install some build dependencies, see https://github.com/pyenv/pyenv/wiki#suggested-build-environment section on Ubuntu/Debian/Mint
-    6c. install python 3.10
-    6d. run "pyenv global 3.10" to allow python3.10 command
+    Option 1:
+        6a. install pyenv https://www.samwestby.com/tutorials/rpi-pyenv
+        6b. may need to install some build dependencies, see https://github.com/pyenv/pyenv/wiki#suggested-build-environment section on Ubuntu/Debian/Mint
+        6c. install python 3.10
+        6d. run "pyenv global 3.10" to allow python3.10 command
+    Option 2:
+        6a. run setup_python.sh
 7. run setup_installation.sh
     7a. may need to change some package versions around (check client_requirements.txt)
