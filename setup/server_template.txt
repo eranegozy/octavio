@@ -1,0 +1,23 @@
+[Unit]
+Description=Octavio Server
+After=network.target
+
+[Service]
+# Replace with your actual username
+User=${SERVER_USERNAME}
+
+WorkingDirectory=${OCTAVIO_PROJECT_PATH}/server
+
+# Use the Python interpreter inside the venv
+ExecStart=${USER_DIRECTORY}/.envs/octavio/bin/flask --app server run --debug --host=0.0.0.0 --port=5001
+
+# (Optional but good practice)
+Environment="PATH=${USER_DIRECTORY}/.envs/octavio/bin:/usr/bin"
+Environment="VIRTUAL_ENV=${USER_DIRECTORY}/.envs/octavio"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONIOENCODING=utf-8"
+
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
