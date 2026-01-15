@@ -55,12 +55,12 @@ def inspect_db(is_test=False):
 if __name__ == '__main__':
     ...
 
-    # is_test = True
+    is_test = True
 
-    # create_db(is_test=is_test)
-    # insert_test_data()
-    # inspect_db(is_test=is_test)
+    create_db(is_test=is_test)
+    insert_test_data()
+    inspect_db(is_test=is_test)
 
-    # is_test = False
-    # create_db(is_test=is_test)
-    # inspect_db(is_test=is_test)
+    is_test = False
+    create_db(is_test=is_test)
+    inspect_db(is_test=is_test)

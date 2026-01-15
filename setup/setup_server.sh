@@ -16,7 +16,7 @@ echo
 echo "Constructing virtual environment"
 mkdir -p $USER_DIRECTORY/.envs
 python3.10 -m venv $USER_DIRECTORY/.envs/octavio/
-sudo chown -R $SERVER_USERNAME:$SERVER_USERNAME $USER_DIRECTORY/.envs/
+# sudo chown -R $SERVER_USERNAME:$SERVER_USERNAME $USER_DIRECTORY/.envs/
 
 echo
 

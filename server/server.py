@@ -32,12 +32,28 @@ app = Flask(__name__)
 CORS(app)
 file_counter = 0
 
+###
+instrument_info = {}
+###
+
 # Set prod-server or test-server (default=prod)
 app.config['is_test'] = False
 
 @app.route("/")
 def hello_world():
     return 'Bingo'
+    
+@app.route("/heartbeat", methods=['POST'])
+def add_heartbeat():
+    j = request.json
+    
+    iid = j['instrument_id']
+    now = j['time']
+    instrument_info[iid] = now
+    
+    logger.info(f"Heartbeat receieved from piano {iid}")
+    
+    return 'Success'
 
 @app.route("/piano", methods=['POST'])
 def add_piano_music():
@@ -52,6 +68,11 @@ def add_piano_music():
     ticks_per_beat = j['ticks_per_beat']
 
     logger.info(f"MIDI receieved from piano {iid} in session {session_id}")
+    
+    ###
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    instrument_info[iid] = now
+    ###
 
     official_data_dir = './data'
     os.makedirs(official_data_dir, exist_ok=True)
@@ -142,6 +163,10 @@ def get_instrument_data():
     iid = query_params['instrument_id']
     sessions = db_queries.get_instrument_sessions(instrument_id=iid, is_test=is_test)
     return sessions
+    
+@app.route('/api/whatsup', methods=['GET'])
+def get_whats_up():
+    return instrument_info
 
 @app.route("/keyboard", methods=['POST'])
 def add_keyboard_music():
