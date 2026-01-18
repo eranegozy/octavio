@@ -89,16 +89,29 @@ def display_midi(midi_filename):
     # for msg in mid:
     #     print(msg)
 
-def combine_midi(midi_filename1, midi_filename2, output_filename):
+def copy_midi_object(mid):
+    output = mido.MidiFile(
+        type=mid.type,
+        ticks_per_beat=mid.ticks_per_beat
+    )
+
+    for track in mid.tracks:
+        new_track = mido.MidiTrack()
+        for msg in track:
+            new_track.append(msg.copy())
+        output.tracks.append(new_track)
+
+    return output
+
+def combine_midi_objects(midi1, midi2):
     START_END_THRESHOLD = 0.25
 
-    mid1 = mido.MidiFile(midi_filename1)
+    mid1 = midi1
+    mid2 = midi2
     mid1.tracks = [mido.merge_tracks(mid1.tracks)]
-
-    mid2 = mido.MidiFile(midi_filename2)
     mid2.tracks = [mido.merge_tracks(mid2.tracks)]
 
-    output_mid = mido.MidiFile(midi_filename1)
+    output_mid = copy_midi_object(mid1)
     track = mido.MidiTrack()
     output_mid.tracks = [track]
 
@@ -152,6 +165,13 @@ def combine_midi(midi_filename1, midi_filename2, output_filename):
             lost_time = 0
         track.append(new_msg)
 
+    return output_mid
+
+def combine_midi(midi_filename1, midi_filename2, output_filename):
+    mid1 = midi.MidiFile(midi_filename1)
+    mid2 = midi.MidiFile(midi_filename2)
+    output_mid = combine_midi_objects(mid1, mid2)
+
     output_mid.save(output_filename)
 
 def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
@@ -194,8 +214,8 @@ def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_
 
     return midi_info
 
-def serialize_midi_file(midi_filename):
-    mid = mido.MidiFile(midi_filename)
+def serialize_midi_object(midi_object):
+    mid = midi_object
     if len(mid.tracks) > 1:
         mid.tracks = [mido.merge_tracks(mid.tracks)]
 
@@ -206,7 +226,11 @@ def serialize_midi_file(midi_filename):
     tpb = mid.ticks_per_beat
     return msgs, tpb
 
-def deserialize_midi_file(msgs, ticks_per_beat, out_filename):
+def serialize_midi_file(midi_filename):
+    mid = mido.MidiFile(midi_filename)
+    serialize_midi_object(mid)
+
+def deserialize_midi_object(msgs, ticks_per_beat):
     track = mido.MidiTrack()
     mid = mido.MidiFile(ticks_per_beat=ticks_per_beat, tracks=[track])
 
@@ -217,6 +241,10 @@ def deserialize_midi_file(msgs, ticks_per_beat, out_filename):
         else:
             msg = mido.Message.from_str(serialized_msg)
         track.append(msg)
+    return mid
+
+def deserialize_midi_file(msgs, ticks_per_beat, out_filename):
+    mid = deserialize_midi_object(msgs, ticks_per_beat)
     mid.save(out_filename)
 
 def midi_is_empty(midi_filename):

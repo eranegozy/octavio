@@ -180,3 +180,5 @@ partials/
 misc/
 
 *.db
+
+server/.env
