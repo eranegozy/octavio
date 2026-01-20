@@ -88,13 +88,14 @@ def add_piano_music():
 
     logger.info(f"MIDI receieved from piano {iid} in session {session_id}")
 
-    s3_client = get_aws_client()
-    write_midi_to_file_aws(
-        s3_client, 
-        utils.deserialize_midi_object(messages, ticks_per_beat), 
-        get_chunk_filename_aws(iid, session_id, chunk)
-    )
-    s3_client.close()
+    if app.config['USE_AWS']:
+        s3_client = get_aws_client()
+        write_midi_to_file_aws(
+            s3_client, 
+            utils.deserialize_midi_object(messages, ticks_per_beat), 
+            get_chunk_filename_aws(iid, session_id, chunk)
+        )
+        s3_client.close()
 
     official_data_dir = './data'
     os.makedirs(official_data_dir, exist_ok=True)
@@ -171,9 +172,10 @@ def get_midi():
     # midi_filename = 'leit50a4t1_1.mid'
     midi_filepath = f'./data/{midi_filename}'
 
-    s3_client = get_aws_client()
-    merge_chunks_aws(s3_client, iid, sid)
-    s3_client.close()
+    if app.config['USE_AWS']:
+        s3_client = get_aws_client()
+        merge_chunks_aws(s3_client, iid, sid)
+        s3_client.close()
 
     return send_file(
         midi_filepath,
@@ -200,13 +202,16 @@ def add_keyboard_music():
 
 @app.route("/merge", methods=['PATCH'])
 def do_merge():
-    j = request.json
-    sid = j['session_id']
-    iid = j['instrument_id']
-    s3_client = get_aws_client()
-    success = merge_chunks_aws(s3_client, iid, sid)
-    s3_client.close()
-    return "Success" if success else "Aborted"
+    if app.config['USE_AWS']:
+        j = request.json
+        sid = j['session_id']
+        iid = j['instrument_id']
+        s3_client = get_aws_client()
+        success = merge_chunks_aws(s3_client, iid, sid)
+        s3_client.close()
+        return "Success" if success else "Aborted"
+    else:
+        return "Aborted"
 
 def get_aws_client():
     return boto3.client(
@@ -358,9 +363,6 @@ def merge_chunks_aws(s3_client, iid, session_id):
     """
     Attempts to merge chunks. The write to the meta file for the session is the commit point.
     """
-    # find a good place to do this
-    create_session_aws(s3_client, iid, session_id)
-
     read_result = get_session_meta_aws(s3_client, iid, session_id)
     if read_result is None:
         logger.warning(f"Failed to read meta file... aborting merge for instrument {iid} and session {session_id}")
