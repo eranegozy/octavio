@@ -232,6 +232,8 @@ class OctavioClient:
 
     def record_audio(self):
         def mic_callback(input_data, frame_count, time_info, flags):
+            now = datetime.datetime.now()
+
             logger.info("Attempting to extract MIDI")
             midi_info = utils.extract_midi(
                 input_bytes=input_data,
@@ -253,6 +255,7 @@ class OctavioClient:
                 'instrument_id': self.instrument_id,
                 'session_id': self.session,
                 'chunk': self.chunks_sent,
+                'time': now.isoformat(),
                 **midi_info
             }
             headers = {
@@ -314,7 +317,7 @@ class OctavioClient:
             logger.info("Sending heartbeat")
             request_data = {
                 'instrument_id': self.instrument_id,
-                'time': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                'time': datetime.datetime.now().isoformat(),
             }
             headers = {
                 'Content-Type': 'application/json'
