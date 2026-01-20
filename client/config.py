@@ -1,2 +1,0 @@
-DO_RECORD = False
-DO_HEARTBEAT = True

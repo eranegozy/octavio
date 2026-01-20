@@ -19,7 +19,6 @@ import signal
 # import infra
 import json
 from hardware import OctavioHardware
-from config import DO_RECORD, DO_HEARTBEAT
 import utils
 with log_utils.no_stderr():
     from basic_pitch import build_icassp_2022_model_path, FilenameSuffix
@@ -36,6 +35,23 @@ logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stderr)
 handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(handler)
+
+# placeholder, should set up .env
+config = {
+    'DO_RECORD': True,
+    'DO_HEARTBEAT': True,
+    'SERVER_URL': None,
+}
+if os.path.isfile("./.env"):
+	logger.info("Loading environment variables from .env")
+    config = {
+	    **dotenv_values(".env")
+	}
+for k, v in config.items():
+    if str(v).strip().lower() == 'true':
+        config[k] == True
+    elif str(v).strip().lower() == 'false':
+        config[k] = False
 
 class OctavioClient:
     format = pyaudio.paInt16
@@ -59,8 +75,7 @@ class OctavioClient:
 
     temp_dir = './temps'
 
-    # server_url = 'http://127.0.0.1:5001'
-    server_url = 'http://octavio-server.mit.edu:5001'
+    server_url = config['SERVER_URL']
     midi_endpoint_url = '/piano'
     heartbeat_endpoint_url = '/heartbeat'
     midi_request_url = f'{server_url}{midi_endpoint_url}'
@@ -283,7 +298,7 @@ class OctavioClient:
         logger.info("Client running")
         while True:
             self.refresh_client_state()
-            if self.stream is None and self.is_recording and DO_RECORD:
+            if self.stream is None and self.is_recording and config['DO_RECORD']:
                 logger.info("System starting a new audio stream")
                 self.stream = self.record_audio()
             elif self.end_stream_flag:
@@ -321,6 +336,6 @@ if __name__ == '__main__':
     ...
 
     client = OctavioClient()
-    if DO_HEARTBEAT:
+    if config['DO_HEARTBEAT']:
         client.run_heartbeat()
     client.run()
