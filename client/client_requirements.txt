@@ -54,6 +54,7 @@ pyasn1==0.6.1
 pyasn1_modules==0.4.1
 PyAudio==0.2.14
 pycparser==2.22
+python-dotenv==1.2.1
 PyYAML==6.0.2
 requests==2.32.3
 requests-oauthlib==2.0.0

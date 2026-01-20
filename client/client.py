@@ -13,6 +13,7 @@ import time
 import threading
 import requests
 import datetime
+from dotenv import dotenv_values
 import numpy as np
 import shutil
 import signal
@@ -43,13 +44,12 @@ config = {
     'SERVER_URL': None,
 }
 if os.path.isfile("./.env"):
-	logger.info("Loading environment variables from .env")
-    config = {
-	    **dotenv_values(".env")
-	}
+    logger.info("Loading environment variables from .env")
+    config = { **dotenv_values(".env") }
+
 for k, v in config.items():
     if str(v).strip().lower() == 'true':
-        config[k] == True
+        config[k] = True
     elif str(v).strip().lower() == 'false':
         config[k] = False
 

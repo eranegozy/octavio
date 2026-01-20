@@ -54,7 +54,7 @@ if os.path.isfile("./.env"):
 	}
 for k, v in app.config.items():
     if str(v).strip().lower() == 'true':
-        app.config[k] == True
+        app.config[k] = True
     elif str(v).strip().lower() == 'false':
         app.config[k] = False
 
