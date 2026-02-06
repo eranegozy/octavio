@@ -159,7 +159,7 @@ class OctavioClient:
         logger.info(f"System starting session is {self.session}")
 
         # heartbeat
-        self.heartbeat_thread = threading.Thread(target = self.heartbeat)
+        self.heartbeat_thread = threading.Thread(target = self.heartbeat, daemon=True)
         self.exit_flag = threading.Event()
 
     def on_shutdown(self):
@@ -326,10 +326,11 @@ class OctavioClient:
                 r = requests.post(
                     self.heartbeat_request_url,
                     json=request_data,
-                    headers=headers
+                    headers=headers,
+                    timeout=10
                 )
             except Exception as e:
-                logger.info("Failed to send heartbeat")
+                logger.info(f"Failed to send heartbeat: {e}")
             else:
                 logger.info("Successfully sent heartbeat")
                 

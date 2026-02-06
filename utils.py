@@ -228,7 +228,7 @@ def serialize_midi_object(midi_object):
 
 def serialize_midi_file(midi_filename):
     mid = mido.MidiFile(midi_filename)
-    serialize_midi_object(mid)
+    return serialize_midi_object(mid)
 
 def deserialize_midi_object(msgs, ticks_per_beat):
     track = mido.MidiTrack()
