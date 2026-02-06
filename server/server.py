@@ -71,6 +71,18 @@ def add_heartbeat():
     instrument_info[iid] = now
     
     logger.info(f"Heartbeat receieved from piano {iid}")
+    s3_client = get_aws_client()
+    if not append_log_aws(
+        s3_client,
+        datetime.date.today(),
+        {
+            'instrument_id': str(iid),
+            'time': str(now),
+            'operation': 'ADD_HEARTBEAT'
+        }
+    ):
+        logger.warning(f"Failed to update log for piano {iid}")
+    s3_client.close()
     
     return 'Success'
 
@@ -84,17 +96,37 @@ def add_piano_music():
     session_id = j['session_id']
     chunk = j['chunk']
     messages = j['messages']
+    time_recorded = j['time']
     ticks_per_beat = j['ticks_per_beat']
 
     logger.info(f"MIDI receieved from piano {iid} in session {session_id}")
 
     if app.config['USE_AWS']:
         s3_client = get_aws_client()
-        write_midi_to_file_aws(
+        if not write_midi_to_file_aws(
             s3_client, 
             utils.deserialize_midi_object(messages, ticks_per_beat), 
-            get_chunk_filename_aws(iid, session_id, chunk)
-        )
+            get_chunk_filename_aws(iid, session_id, chunk),
+            metadata={
+                'chunk': str(chunk),
+                'instrument_id': str(iid),
+                'session_id': str(session_id),
+                'time': str(time_recorded)
+            }
+        ):
+            logger.warning(f"Failed to write chunk {chunk} for piano {iid} in session {session_id}... aborting")
+        if not append_log_aws(
+            s3_client,
+            datetime.date.today(),
+            {
+                'instrument_id': str(iid),
+                'session_id': str(session_id),
+                'chunk': str(chunk),
+                'time': str(time_recorded),
+                'operation': 'ADD_CHUNK'
+            }
+        ):
+            logger.warning(f"Failed to update log for piano {iid} in session {session_id}")
         s3_client.close()
 
     official_data_dir = './data'
@@ -170,15 +202,26 @@ def get_midi():
     iid = query_params['instrument_id']
     midi_filename = f'{sid}_{iid}.mid'
     # midi_filename = 'leit50a4t1_1.mid'
-    midi_filepath = f'./data/{midi_filename}'
+    midi_filesource = f'./data/{midi_filename}'
 
     if app.config['USE_AWS']:
         s3_client = get_aws_client()
+        create_session_aws(s3_client, iid, sid)
         merge_chunks_aws(s3_client, iid, sid)
+        purge_chunks_aws(s3_client, iid, sid)
+        read_result = read_midi_from_file_aws(s3_client, get_cumulative_filename_aws(iid, sid))
+        if read_result is None:
+            return "MIDI file not found", 404
+        else:
+            midi_object, _, __ = read_result
+            buffer = BytesIO()
+            midi_object.save(file=buffer)
+            buffer.seek(0)
+            midi_filesource = buffer
         s3_client.close()
 
     return send_file(
-        midi_filepath,
+        midi_filesource,
         mimetype='audio/midi',
         as_attachment=False,
         download_name=midi_filename
@@ -207,7 +250,9 @@ def do_merge():
         sid = j['session_id']
         iid = j['instrument_id']
         s3_client = get_aws_client()
+        create_session_aws(s3_client, iid, sid)
         success = merge_chunks_aws(s3_client, iid, sid)
+        purge_chunks_aws(s3_client, iid, sid)
         s3_client.close()
         return "Success" if success else "Aborted"
     else:
@@ -221,7 +266,7 @@ def get_aws_client():
         region_name=app.config['AWS_REGION']
     )
 
-def write_midi_to_file_aws(s3_client, midi_object, target_key, etag=None):
+def write_midi_to_file_aws(s3_client, midi_object, target_key, metadata={}, etag=None):
     buffer = BytesIO()
     midi_object.save(file=buffer)
     buffer.seek(0)
@@ -231,6 +276,7 @@ def write_midi_to_file_aws(s3_client, midi_object, target_key, etag=None):
                 Bucket=app.config['BUCKET'],
                 Key=target_key,
                 Body=buffer.read(),
+                Metadata=metadata,
                 IfMatch=etag
             )
             return True
@@ -239,6 +285,7 @@ def write_midi_to_file_aws(s3_client, midi_object, target_key, etag=None):
                 Bucket=app.config['BUCKET'],
                 Key=target_key,
                 Body=buffer.read(),
+                Metadata=metadata,
                 IfNoneMatch='*'
             )
             return True
@@ -250,7 +297,7 @@ def write_midi_to_file_aws(s3_client, midi_object, target_key, etag=None):
 
 def read_midi_from_file_aws(s3_client, target_key):
     """
-    Returns a tuple (midi object, etag) or None if the key doesn't exist
+    Returns a tuple (midi object, metadata, etag) or None if the key doesn't exist
     """
     buffer = BytesIO()
     try:
@@ -264,7 +311,7 @@ def read_midi_from_file_aws(s3_client, target_key):
         raise
     buffer.seek(0)
     buffer = BytesIO(response['Body'].read())
-    return mido.MidiFile(file=buffer), response['ETag']
+    return mido.MidiFile(file=buffer), response['Metadata'], response['ETag']
 
 def get_chunk_filename_aws(iid, session_id, chunk):
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
@@ -273,44 +320,76 @@ def get_chunk_filename_aws(iid, session_id, chunk):
     chunk_file=f'chunk_{chunk}'
     return f'{db_type}/{instrument_directory}/{session_directory}/{chunk_file}'
 
-def get_meta_filename_aws(iid, session_id):
+def get_cumulative_filename_aws(iid, session_id):
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
     instrument_directory = f'ins_{iid}'
     session_directory = f'{session_id}'
-    return f'{db_type}/{instrument_directory}/{session_directory}/meta'
+    return f'{db_type}/{instrument_directory}/{session_directory}/main'
 
-def get_cumulative_filename_aws(iid, session_id, version_number):
+def get_log_filename_aws(date):
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
-    instrument_directory = f'ins_{iid}'
-    session_directory = f'{session_id}'
-    return f'{db_type}/{instrument_directory}/{session_directory}/main_{version_number}'
+    year = str(date.year)
+    month = str(date.month)
+    day = str(date.day)
+    return f'{db_type}/logs/{year}/{month}/{day}.txt'
 
-def create_session_aws(s3_client, iid, session_id):
-    # Create meta file
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    meta_dict = {
-        'max_chunk_processed': -1,
-        'time_created': now,
-        'last_updated': now,
-        'version_number': 0,
-    }
+def append_log_aws(s3_client, date, json_object):
+    """
+    Appends a json object to the log file for the given day.
+    Creates the log file if it doesn't exist.
+    The log file is a text file where each line is a separate json object.
+
+    Returns true on success, false on failure.
+    """
+    log_key = get_log_filename_aws(date)
+    response = None
+    etag = None
+    existing_logs = ""
     try:
-        s3_client.put_object(
-            Bucket=app.config['BUCKET'],
-            Key=get_meta_filename_aws(iid, session_id),
-            Body=json.dumps(meta_dict).encode('utf-8'),
-            IfNoneMatch='*'
-        )
+        response = s3_client.get_object(Bucket=app.config['BUCKET'], Key=log_key)
+        buffer = BytesIO(response['Body'].read())
+        existing_logs = buffer.getvalue().decode('utf-8')
+        etag = response['ETag']
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            existing_logs = ""
+        else:
+            raise
+    log_to_write = existing_logs + json.dumps(json_object) + '\n'
+    try:
+        if etag is None:
+            s3_client.put_object(
+                Bucket=app.config['BUCKET'],
+                Key=log_key,
+                Body=log_to_write.encode('utf-8'),
+                IfNoneMatch='*',
+            )
+        else:
+            s3_client.put_object(
+                Bucket=app.config['BUCKET'],
+                Key=log_key,
+                Body=log_to_write.encode('utf-8'),
+                IfMatch=etag,
+            )
+        return True
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code != "PreconditionFailed":
+        if error_code == "PreconditionFailed":
+            return False
+        raise
+
+
+def create_session_aws(s3_client, iid, session_id):
+    """
+    Returns true on success, false if the session already exists
+    """
+    try:
+        s3_client.head_object(Bucket=app.config['BUCKET'], Key=get_cumulative_filename_aws(iid, session_id))  
+        logger.warning(f"Session for piano {iid} with id {session_id} already exists... aborting") 
+        return False
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "404":
             raise
-    
-    prefix = get_cumulative_filename_aws(iid, session_id, 0)[:-1]
-    response = s3_client.list_objects(Bucket=app.config['BUCKET'], Prefix=prefix, Delimiter='/')
-    if 'Contents' in response and len(response['Contents']) > 0:
-        # main MIDI file already exists
-        return
 
     # Create file for caching combined chunks
     mid = mido.MidiFile()
@@ -320,55 +399,27 @@ def create_session_aws(s3_client, iid, session_id):
     try:
         s3_client.put_object(
             Bucket=app.config['BUCKET'],
-            Key=get_cumulative_filename_aws(iid, session_id, 0),
+            Key=get_cumulative_filename_aws(iid, session_id),
             Body=buffer.read(),
+            Metadata={
+                'max_chunk': '-1',
+                'instrument_id': str(iid),
+                'session_id': str(session_id),
+                'time_updated': datetime.datetime.now().isoformat(),
+            },
             IfNoneMatch='*'
-        )
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        if error_code != "PreconditionFailed":
-            raise
-
-def get_session_meta_aws(s3_client, iid, session_id):
-    """
-    Returns a tuple (json object, etag) or None if the key doesn't exist
-    """
-    try:
-        response = s3_client.get_object(
-            Bucket=app.config['BUCKET'],
-            Key=get_meta_filename_aws(iid, session_id)
-        )
-        return json.loads(response['Body'].read().decode("utf-8")), response['ETag']
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchKey":
-            return None
-        raise
-
-def set_session_meta_aws(s3_client, iid, session_id, meta_dict, etag):
-    try:
-        s3_client.put_object(
-            Bucket=app.config['BUCKET'],
-            Key=get_meta_filename_aws(iid, session_id),
-            Body=json.dumps(meta_dict).encode('utf-8'),
-            IfMatch=etag
         )
         return True
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code == "PreconditionFailed":
-            return False
-        raise
+        if error_code != "PreconditionFailed":
+            raise
+        return False
 
 def merge_chunks_aws(s3_client, iid, session_id):
     """
-    Attempts to merge chunks. The write to the meta file for the session is the commit point.
+    Attempts to merge chunks.
     """
-    read_result = get_session_meta_aws(s3_client, iid, session_id)
-    if read_result is None:
-        logger.warning(f"Failed to read meta file... aborting merge for instrument {iid} and session {session_id}")
-        return False
-    meta_dict, meta_etag = read_result
-
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
     instrument_directory = f'ins_{iid}'
     session_directory = f'{session_id}'
@@ -380,46 +431,70 @@ def merge_chunks_aws(s3_client, iid, session_id):
         if fname.startswith('chunk_'):
             chunk = int(fname[len('chunk_'):])
             chunks.append(chunk)
-        elif fname.startswith('main_'):
-            version = int(fname[len('main_'):])
-            if version != meta_dict['version_number']:
-                # it may be possible to see higher version numbers if the write to the meta didn't go through
-                s3_client.delete_object(Bucket=app.config['BUCKET'], Key=get_cumulative_filename_aws(iid, session_id, version))
     chunks.sort()
     if len(chunks) == 0:
         return True
 
     read_result = read_midi_from_file_aws(
         s3_client,
-        get_cumulative_filename_aws(iid, session_id, meta_dict['version_number'])
+        get_cumulative_filename_aws(iid, session_id)
     )
     if read_result is None:
         logger.warning(f"Failed to read cumulative MIDI file... aborting merge for instrument {iid} and session {session_id}")
         return False
-    cumulative_mid, _ = read_result
+    cumulative_mid, metadata, etag = read_result
 
     merge_mid = cumulative_mid
+    max_chunk = int(metadata['max_chunk'])
     for chunk in chunks:
-        if chunk <= meta_dict['max_chunk_processed']:
-            s3_client.delete_object(Bucket=app.config['BUCKET'], Key=get_chunk_filename_aws(iid, session_id, chunk))
-        elif chunk == meta_dict['max_chunk_processed'] + 1:
+        if chunk == max_chunk + 1:
             read_result = read_midi_from_file_aws(s3_client, get_chunk_filename_aws(iid, session_id, chunk))
             if read_result is None:
                 logger.warning(f"Found missing chunk... aborting merge for instrument {iid} and session {session_id}")
                 return False
-            chunk_mid, _ = read_result
+            chunk_mid, chunk_meta, _ = read_result
             merge_mid = utils.combine_midi_objects(cumulative_mid, chunk_mid)
-            meta_dict['max_chunk_processed'] = chunk
+            metadata['time_updated'] = chunk_meta['time']
+            max_chunk += 1
     
-    meta_dict['version_number'] += 1
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    meta_dict['last_updated'] = now
-    if write_midi_to_file_aws(
+    metadata['max_chunk'] = str(max_chunk)
+    
+    return write_midi_to_file_aws(
         s3_client, 
         merge_mid, 
-        get_cumulative_filename_aws(iid, session_id, meta_dict['version_number'])
-    ):
-        return set_session_meta_aws(s3_client, iid, session_id, meta_dict, meta_etag)
-    else:
-        return False
+        get_cumulative_filename_aws(iid, session_id),
+        metadata,
+        etag
+    )
 
+def purge_chunks_aws(s3_client, iid, session_id):
+    response = None
+    try:
+        response = s3_client.head_object(Bucket=app.config['BUCKET'], Key=get_cumulative_filename_aws(iid, session_id))  
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            logger.warning(f"Session for piano {iid} with id {session_id} not found... aborting")
+            return False
+        raise
+    
+    max_chunk = int(response['Metadata']['max_chunk'])
+
+    db_type = 'prod' if app.config['IS_PROD'] else 'test'
+    instrument_directory = f'ins_{iid}'
+    session_directory = f'{session_id}'
+    prefix = f'{db_type}/{instrument_directory}/{session_directory}/'
+    response = s3_client.list_objects(Bucket=app.config['BUCKET'], Prefix=prefix, Delimiter='/')
+    chunks = []
+    for c in response['Contents']:
+        fname = c['Key'].split('/')[-1]
+        if fname.startswith('chunk_'):
+            chunk = int(fname[len('chunk_'):])
+            if chunk <= max_chunk:
+                try:
+                    s3_client.delete_object(Bucket=app.config['BUCKET'], Key=c['Key'])
+                except ClientError as e:
+                    if e.response["Error"]["Code"] == "NoSuchKey":
+                        logger.info(f"Chunk {chunk} for piano {iid} in session {session_id} already deleted")
+                        continue
+                    raise
+    return True

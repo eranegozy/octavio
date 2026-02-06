@@ -168,8 +168,8 @@ def combine_midi_objects(midi1, midi2):
     return output_mid
 
 def combine_midi(midi_filename1, midi_filename2, output_filename):
-    mid1 = midi.MidiFile(midi_filename1)
-    mid2 = midi.MidiFile(midi_filename2)
+    mid1 = mido.MidiFile(midi_filename1)
+    mid2 = mido.MidiFile(midi_filename2)
     output_mid = combine_midi_objects(mid1, mid2)
 
     output_mid.save(output_filename)
