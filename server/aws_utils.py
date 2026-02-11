@@ -124,7 +124,7 @@ if __name__ == '__main__':
     # print(len(a))
     # print(len(b))
     print(list_prefix('test/logs'))
-    print(retrieve_object('test/logs/2026/2/6.txt'))
+    # print(retrieve_object('test/logs/2026/2/7.txt').split('\n'))
     # print(info_object('test/ins_10/ygaudr663g/chunk_1'))
     # info_chunks('10', '99s2zk413r')
     # purge_range('test/ins_10', datetime.datetime(2026, 2, 3, 0, 0, 1), datetime.datetime(2026, 2, 5, 23, 59))

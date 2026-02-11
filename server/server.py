@@ -239,6 +239,27 @@ def get_instrument_data():
 def get_whats_up():
     return instrument_info
 
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    s3_client = get_aws_client()
+    logs = read_log_aws(s3_client, datetime.datetime.today())
+    s3_client.close()
+    return logs if logs is not None else []
+
+@app.route('/api/online_instruments', methods=['GET'])
+def get_online_instruments():
+    TIME_DELTA = datetime.timedelta(minutes = 5)
+    compare_time = datetime.datetime.now() - TIME_DELTA
+
+    s3_client = get_aws_client()
+    logs = read_log_aws(s3_client, datetime.datetime.today())
+    result = set()
+    for log in logs:
+        if log['operation'] == 'ADD_HEARTBEAT' and datetime.datetime.fromisoformat(log['time']) > compare_time:
+            result.add(log['instrument_id'])
+    s3_client.close()
+    return sorted(list(result))
+
 @app.route("/keyboard", methods=['POST'])
 def add_keyboard_music():
     raise NotImplementedError
@@ -378,6 +399,18 @@ def append_log_aws(s3_client, date, json_object):
             return False
         raise
 
+def read_log_aws(s3_client, date):
+    log_key = get_log_filename_aws(date)
+    try:
+        response = s3_client.get_object(Bucket=app.config['BUCKET'], Key=log_key)
+        buffer = BytesIO(response['Body'].read())
+        existing_logs = buffer.getvalue().decode('utf-8')
+        return [json.loads(line) for line in existing_logs.split('\n') if len(line) > 0]
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            return None
+        else:
+            raise
 
 def create_session_aws(s3_client, iid, session_id):
     """
