@@ -242,7 +242,10 @@ def get_whats_up():
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     s3_client = get_aws_client()
-    date = request.args.get('date')
+    year = request.args.get('year')
+    month = request.args.get('month')
+    day = request.args.get('day')
+    date = datetime.date(int(year), int(month), int(day)) if year and month and day else None
     logs = read_log_aws(s3_client, datetime.datetime.today() if date is None else datetime.datetime.fromisoformat(date))
     s3_client.close()
     return logs if logs is not None else []
