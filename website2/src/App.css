@@ -49,6 +49,15 @@
   gap: 1rem;
 }
 
+.session-ids {
+  background-color: aliceblue;
+  outline-color: black;
+  outline-style: solid;
+  outline-width: thin;
+  padding: 0.5rem;
+}
+
 .log-body {
   line-break: break-word;
+  background-color: aliceblue;
 }
