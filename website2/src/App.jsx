@@ -25,7 +25,7 @@ const test_url = "http://octavio-server.mit.edu:5001/"
 function App() {
   const [online_instruments, setOnlineInstruments] = useState([])
   const [date, setDate] = useState(new Date())
-  const [session_ids, setSessionIds] = useState(new Set())
+  const [session_ids, setSessionIds] = useState(new Map())
   const [log_info, setLogInfo] = useState("")
 
   async function fetchOnlineInstruments() {
@@ -33,7 +33,7 @@ function App() {
     setOnlineInstruments(await response.text())
   }
 
-  async function fetchLog() {
+  async function fetchLog(date) {
     const params = {
       date: date.toISOString().split('T')[0]
     };
@@ -42,11 +42,19 @@ function App() {
     const response = await fetch(url)
     const response_text = await response.text();
     const response_json = JSON.parse(response_text);
-    const new_session_ids = new Set(response_json.filter(
-      (item) => item['operation'] === 'ADD_CHUNK'
-    ).map(
-      (item) => item['session_id']
-    ));
+    const instruments = new Set(response_json.map((item) => item['instrument_id']));
+    const new_session_ids = new Map([...instruments].map((iid) => [iid, [...new Set(
+      response_json.filter(
+        (item) => item['operation'] === 'ADD_CHUNK' && item['instrument_id'] === iid
+      ).map(
+        (item) => item['session_id']
+      )
+    )]]));
+    // const new_session_ids = new Set(response_json.filter(
+    //   (item) => item['operation'] === 'ADD_CHUNK'
+    // ).map(
+    //   (item) => [item['instrument_id'], item['session_id']]
+    // ));
     setLogInfo(response_text);
     setSessionIds(new_session_ids);
   }
@@ -66,13 +74,17 @@ function App() {
     <>
       <h1>Octavio Website</h1>
       <h2>Online Instruments: {online_instruments}</h2>
+      <h2>{date.toISOString()}</h2>
       <div className="logs">
         <DatePicker showIcon selected={date} onChange={(date) => {
           setDate(date);
-          fetchLog();
+          fetchLog(date);
         }}/>
-        <div className="session-ids">{'Sessions: {' + Array.from(session_ids).join(', ') + '}'}</div>
-        <div className="log-body">{log_info}</div>
+        
+        <details>
+          <div className="session-ids">{'Sessions: {\n' + Array.from(session_ids).map(([key, value]) => String(key) + ': [' + value.join(', ') + ']').join('\n') + '\n}'}</div>
+          <div className="log-body">{log_info}</div>
+        </details>
       </div>
     </>
   )
