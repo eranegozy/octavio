@@ -181,3 +181,7 @@ partials/
 misc/
 
 *.db
+
+*.DS_Store
+*.wav
+*.mid

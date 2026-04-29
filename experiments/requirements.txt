@@ -1,0 +1,3 @@
+transkun
+mido
+numpy<2

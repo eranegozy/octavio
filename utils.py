@@ -22,6 +22,9 @@ with log_utils.no_stderr():
 import scipy.io
 import calibrate
 
+import subprocess
+import transkun.transcribe as tk
+
 def generate_id():
     id_options = string.ascii_lowercase + string.digits
     return ''.join(random.choices(population=id_options, k=10))
@@ -180,6 +183,37 @@ def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
     return denoised
 
 def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
+    # extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps')
+    extract_midi_implementation(input_bytes, temp_dir='./temps')
+
+
+def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
+    temp_id = generate_id()
+    unique_temp_dir = f'{temp_dir}/{temp_id}'
+    os.makedirs(unique_temp_dir, exist_ok=True)
+
+    input_data = np.frombuffer(input_bytes, dtype=np.int16).astype(np.float64) # assumes PyAudio dtype is pyaudio.paInt16
+    wave_filename = f'{unique_temp_dir}/{temp_id}.wav'
+    mid_filename = f'{unique_temp_dir}/{temp_id}.mid'
+    save_frames_to_file(input_data=input_data, filename=wave_filename)
+    tk_subprocess(wave_filename, mid_filename)
+
+    serialized_msgs, tpb = serialize_midi_file(midi_filename=mid_filename)
+    midi_info = {
+        'ticks_per_beat': tpb,
+        'messages': serialized_msgs,
+        'is_empty': False
+    }
+
+    try:
+        shutil.rmtree(unique_temp_dir)
+    except FileNotFoundError:
+        # print(f'{unique_temp_dir} already deleted')
+        pass
+
+    return midi_info
+
+def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
     temp_id = generate_id()
     unique_temp_dir = f'{temp_dir}/{temp_id}'
     os.makedirs(unique_temp_dir, exist_ok=True)
@@ -253,6 +287,20 @@ def midi_is_empty(midi_filename):
         if msg.type == 'note_on':
             return False
     return True
+
+def is_silent(input_bytes, window_length = 2048, threshold = 0.001):
+    input_data = np.frombuffer(input_bytes, dtype=np.int16).astype(np.float64)
+    input_data /= 2 ** 15
+    padding = window_length - (len(input_data) % window_length)
+    data = np.pad(input_data, (0, padding), mode='constant')
+    windows = data.reshape(-1, window_length)
+    energy = np.mean(windows ** 2, axis=1)
+    return np.all(energy < threshold)
+
+def tk_subprocess(input_fname, output_fname):
+    subprocess.run([
+        "python3.10", "-m", "transkun.transcribe", input_fname, output_fname
+    ])
 
 if __name__ == '__main__':
     pass

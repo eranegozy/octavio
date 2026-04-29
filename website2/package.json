@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "html-midi-player": "^1.6.0",
     "react": "^19.2.0",
     "react-datepicker": "^9.1.0",
     "react-dom": "^19.2.0",
+    "react-midi-visualizer": "^3.0.1",
     "react-router": "^7.13.1",
     "react-select": "^5.10.2"
   },

@@ -234,22 +234,21 @@ class OctavioClient:
         def mic_callback(input_data, frame_count, time_info, flags):
             now = datetime.datetime.now()
 
-            logger.info("Attempting to extract MIDI")
-            midi_info = utils.extract_midi(
-                input_bytes=input_data,
-                bp_model=self.bp_model,
-                noise_quartiles=self.noise_quartiles,
-                signal_quartiles=self.signal_quartiles,
-                temp_dir=self.temp_dir
-            )
-            logger.info("MIDI extracted")
-
-            if midi_info['is_empty']:
-                logger.info("MIDI was empty, nothing sent")
+            if utils.is_silent(input_data):
+                logger.info("Audio chunk was silent, skipping MIDI extraction and transmission")
                 self.silence += self.chunk_secs
                 return None, pyaudio.paContinue
             else:
                 self.silence = 0
+                logger.info("Attempting to extract MIDI")
+                midi_info = utils.extract_midi(
+                    input_bytes=input_data,
+                    bp_model=self.bp_model,
+                    noise_quartiles=self.noise_quartiles,
+                    signal_quartiles=self.signal_quartiles,
+                    temp_dir=self.temp_dir
+                )
+                logger.info("MIDI extracted")
 
             request_data = {
                 'instrument_id': self.instrument_id,
