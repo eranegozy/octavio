@@ -183,8 +183,8 @@ def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
     return denoised
 
 def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
-    # extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps')
-    extract_midi_implementation(input_bytes, temp_dir='./temps')
+    extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps')
+    # extract_midi_implementation(input_bytes, temp_dir='./temps')
 
 
 def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
