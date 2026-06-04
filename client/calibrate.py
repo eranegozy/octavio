@@ -1,3 +1,10 @@
+"""Audio calibration and noise-gating utility module.
+
+This module provides tools to record audio via PyAudio, calculate the Root Mean 
+Square (RMS) profiles of signals, calibrate baseline environmental noise versus 
+target signals, and apply a calibrated noise gate to denoise audio arrays.
+"""
+
 import os
 import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -12,15 +19,27 @@ import scipy.ndimage
 import log_utils
 
 def find_recording_device_index():
+    """Finds the index of the first available audio input device detected by PyAudio.
+
+    Returns:
+        int: The index of the recording device if found; otherwise, -1.
+    """
     with log_utils.no_stderr():
         p = pyaudio.PyAudio()
-    for i in range(p.get_device_count()):
+    for i in range(p.get_device_count()):   # search through all connected audio devices
         dev = p.get_device_info_by_index(i)
-        if dev['maxInputChannels'] > 0:
+        if dev['maxInputChannels'] > 0:     # device with at least one input channel is the recording device
             return i
     return -1
 
 def write_recording_device_index(device_index):
+    """Updates the infrastructure configuration file './infra.json' with the given device index.
+    Args:
+        device_index (int): The index of the audio recording device to save.
+    Raises:
+        FileNotFoundError: If the './infra.json' file does not exist.
+        json.JSONDecodeError: If the JSON file contains invalid syntax.
+    """
     with open('./infra.json', 'r') as f:
         j = json.load(f)
 
@@ -31,6 +50,18 @@ def write_recording_device_index(device_index):
         f.write('\n')
 
 def record_audio(record_seconds=30, device_index=None):
+    """Records mono audio (22050Hz, 16-bit) into a NumPy array.
+
+    Args:
+        record_seconds (int): Duration of the recording. Defaults to 30.
+        device_index (int, optional): Hardware device index. If None, auto-detects.
+
+    Returns:
+        np.ndarray: 1D array of np.int16 audio samples.
+
+    Raises:
+        RuntimeError: If device_index is None and no recording device is found.
+    """
     CHUNK = 1024
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
@@ -62,10 +93,18 @@ def record_audio(record_seconds=30, device_index=None):
     return full_recording
 
 def rms(arr):
-    arr = arr.astype(np.float64)
-    return (np.sum(np.square(arr)) / np.size(arr)) ** (1/2)
+    return np.sqrt(np.mean(np.square(arr, dtype=np.float64)))
 
 def chunk_and_rms_sound(full_sound, window_size=2048):
+    """Computes RMS values across the audio signal using a 50% overlapping sliding window.
+
+    Args:
+        full_sound (np.ndarray): 1D array of audio samples.
+        window_size (int): Size of each analysis window. Defaults to 2048.
+
+    Returns:
+        list[float]: RMS values for each window.
+    """
     hop_size = window_size // 2
 
     rmses = []
@@ -77,6 +116,25 @@ def chunk_and_rms_sound(full_sound, window_size=2048):
     return rmses
 
 def measure_calibration(device_index = None):
+    """Interactively records and analyzes baseline noise and signal levels for calibration.
+
+    Prompts the user to record a 30-second noise trial followed by a 60-second 
+    signal trial. Computes and prints the RMS-based quartiles, mean, and 
+    standard deviation for both environments.
+
+    Args:
+        device_index (int, optional): Hardware device index for recording. 
+            If None, auto-detects.
+
+    Returns:
+        tuple: A 6-element tuple containing:
+            - noise_quartiles (list[float]): Quartiles of the noise RMS values.
+            - noise_mean (float): Mean of the noise RMS values.
+            - noise_std (float): Standard deviation of the noise RMS values.
+            - signal_quartiles (list[float]): Quartiles of valid signal RMS values.
+            - signal_mean (float): Mean of all signal RMS values.
+            - signal_std (float): Standard deviation of all signal RMS values.
+    """
     noise_trial_duration = 30
     signal_trial_duration = 60
 
@@ -105,6 +163,16 @@ def measure_calibration(device_index = None):
     return noise_quartiles, noise_mean, noise_std, signal_quartiles, signal_mean, signal_std
 
 def apply_calibration(noise_quartiles, noise_mean, noise_std, signal_quartiles, signal_mean, signal_std):
+    """Saves the calculated noise and signal calibration metrics to 'infra.json'.
+
+    Args:
+        noise_quartiles (list[float]): 25th, 50th, and 75th percentiles for noise.
+        noise_mean (float): Mean of the noise RMS values.
+        noise_std (float): Standard deviation of the noise RMS values.
+        signal_quartiles (list[float]): 25th, 50th, and 75th percentiles for signal.
+        signal_mean (float): Mean of the signal RMS values.
+        signal_std (float): Standard deviation of the signal RMS values.
+    """
     with open('./infra.json', 'r') as f:
         j = json.load(f)
 
@@ -128,7 +196,20 @@ def apply_calibration(noise_quartiles, noise_mean, noise_std, signal_quartiles, 
         f.write('\n')
 
 def denoise_signal(signal, noise_quartiles, signal_quartiles):
-    # Accepts and returns an np.float64 array
+    """Mutes low-volume regions of an audio signal based on calibration medians.
+
+    Computes a noise gate threshold from the medians, evaluates the signal's RMS 
+    profile using a sliding window, and zeros out frames below the threshold whose neighbors
+    are also below the threshold.
+
+    Args:
+        signal (np.ndarray): The 1D input audio array (np.float64) to be denoised.
+        noise_quartiles (list[float]): Noise calibration metrics containing the median.
+        signal_quartiles (list[float]): Signal calibration metrics containing the median.
+
+    Returns:
+        np.ndarray: A modified copy of the input signal with gated regions muted.
+    """
 
     _, noise_median, _ = noise_quartiles
     _, signal_median, _ = signal_quartiles
