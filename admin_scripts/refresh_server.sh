@@ -1,3 +1,7 @@
+#!/bin/bash
+# stops and reboots the server service when run on the PC
+# server username is currently hardcoded (e.g. “ayyub”)
+
 SERVER_USERNAME="ayyub"
 USER_DIRECTORY="/home/$SERVER_USERNAME"
 OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/code/octavio"

@@ -1,4 +1,5 @@
 #!/bin/bash
+# iterates through open client ports and kills the processes (client ports hardcoded to 2001 thru 2020)
 
 MAX_DEVICE_NUM=20
 for i in $(seq 1 "$MAX_DEVICE_NUM"); do

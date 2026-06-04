@@ -1,3 +1,7 @@
+#!/bin/bash
+# stops and reboots the client service when run on the raspberry pi. 
+# client username is currently hardcoded (e.g. “eric”, “yubzak”)
+
 CLIENT_USERNAME="eric"
 USER_DIRECTORY="/home/$CLIENT_USERNAME"
 OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/octavio"

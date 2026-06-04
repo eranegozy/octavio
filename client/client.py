@@ -47,6 +47,7 @@ if os.path.isfile("./.env"):
     logger.info("Loading environment variables from .env")
     config = { **dotenv_values(".env") }
 
+# Sanitize string inputs into boolean
 for k, v in config.items():
     if str(v).strip().lower() == 'true':
         config[k] = True
