@@ -41,6 +41,7 @@ logger.addHandler(handler)
 config = {
     'DO_RECORD': True,
     'DO_HEARTBEAT': True,
+    'RESEARCH_MODE': False,
     'SERVER_URL': None,
 }
 if os.path.isfile("./.env"):
@@ -75,6 +76,7 @@ class OctavioClient:
     default_signal_std = 125.83
 
     temp_dir = './temps'
+    recordings_dir = './recordings'
 
     server_url = config['SERVER_URL']
     midi_endpoint_url = '/piano'
@@ -140,6 +142,10 @@ class OctavioClient:
         if os.path.isdir(self.temp_dir):
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
+
+        if config.get('RESEARCH_MODE', False):
+            logger.info(f"Research mode enabled, recordings will be preserved in {self.recordings_dir}")
+            os.makedirs(self.recordings_dir, exist_ok=True)
 
         logger.info("AMT model attempting to warm up")
 
@@ -247,7 +253,11 @@ class OctavioClient:
                     bp_model=self.bp_model,
                     noise_quartiles=self.noise_quartiles,
                     signal_quartiles=self.signal_quartiles,
-                    temp_dir=self.temp_dir
+                    temp_dir=self.temp_dir,
+                    research_mode=config.get('RESEARCH_MODE', False),
+                    recordings_dir=self.recordings_dir,
+                    session_id=self.session,
+                    chunk=self.chunks_sent
                 )
                 logger.info("MIDI extracted")
 

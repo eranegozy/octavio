@@ -182,8 +182,57 @@ def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
     denoised = calibrate.denoise_signal(signal=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
     return denoised
 
-def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
-    extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps')
+def save_recording(wav_filename, recordings_dir, session_id=None, chunk=None):
+    """Copies a chunk's audio out of its temp dir so it survives temp cleanup.
+
+    Args:
+        wav_filename (str): Path to the WAV file to preserve.
+        recordings_dir (str): Directory to copy the recording into. Created if missing.
+        session_id (str, optional): Session identifier, used to build a stable
+            destination filename alongside chunk. If either session_id or chunk
+            is None, the original filename is reused instead.
+        chunk (int, optional): Chunk index within the session, used to build the
+            destination filename.
+    """
+    os.makedirs(recordings_dir, exist_ok=True)
+    if session_id is not None and chunk is not None:
+        dest_name = f'{session_id}_{chunk:04d}.wav'
+    else:
+        dest_name = os.path.basename(wav_filename)
+    shutil.copy2(wav_filename, os.path.join(recordings_dir, dest_name))
+
+def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None):
+    """Converts a raw audio chunk into serialized MIDI, optionally preserving the audio.
+
+    Thin dispatcher around extract_midi_old_implementation. Audio is always
+    processed via a scratch directory under temp_dir, which is removed once
+    MIDI extraction completes. When research_mode is True, the preprocessed
+    WAV for this chunk is additionally copied to recordings_dir before that
+    cleanup happens, so it remains available after transcription.
+
+    Args:
+        input_bytes (bytes): Raw PCM audio (int16) for one chunk.
+        bp_model: Loaded Basic Pitch model used for transcription.
+        noise_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for noise.
+        signal_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for signal.
+        temp_dir (str): Base directory for scratch files. Defaults to './temps'.
+        research_mode (bool): If True, keep a copy of this chunk's audio in
+            recordings_dir after transcription. Defaults to False.
+        recordings_dir (str): Directory where preserved recordings are written
+            when research_mode is True. Defaults to './recordings'.
+        session_id (str, optional): Current session identifier, used to name
+            the preserved recording.
+        chunk (int, optional): Index of this chunk within the session, used to
+            name the preserved recording.
+
+    Returns:
+        dict: MIDI info with keys 'ticks_per_beat', 'messages', and 'is_empty'.
+    """
+    return extract_midi_old_implementation(
+        input_bytes, bp_model, noise_quartiles, signal_quartiles,
+        temp_dir=temp_dir, research_mode=research_mode, recordings_dir=recordings_dir,
+        session_id=session_id, chunk=chunk
+    )
     # extract_midi_implementation(input_bytes, temp_dir='./temps')
 
 
@@ -213,7 +262,35 @@ def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_q
 
     return midi_info
 
-def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
+def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None):
+    """Denoises a raw audio chunk, transcribes it to MIDI, and cleans up scratch files.
+
+    The chunk is written to a per-call scratch directory under temp_dir, run
+    through Basic Pitch to produce a MIDI file, and serialized for transmission.
+    The scratch directory (audio + MIDI) is removed afterwards regardless of
+    research_mode. If research_mode is True, the preprocessed WAV is first
+    copied to recordings_dir via save_recording so it remains available after
+    the scratch directory is deleted.
+
+    Args:
+        input_bytes (bytes): Raw PCM audio (int16) for one chunk.
+        bp_model: Loaded Basic Pitch model used for transcription.
+        noise_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for noise.
+        signal_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for signal.
+        temp_dir (str): Base directory for scratch files. Defaults to './temps'.
+        research_mode (bool): If True, preserve this chunk's audio in
+            recordings_dir before the scratch directory is removed. Defaults
+            to False.
+        recordings_dir (str): Directory where preserved recordings are written
+            when research_mode is True. Defaults to './recordings'.
+        session_id (str, optional): Current session identifier, used to name
+            the preserved recording.
+        chunk (int, optional): Index of this chunk within the session, used to
+            name the preserved recording.
+
+    Returns:
+        dict: MIDI info with keys 'ticks_per_beat', 'messages', and 'is_empty'.
+    """
     temp_id = generate_id()
     unique_temp_dir = f'{temp_dir}/{temp_id}'
     os.makedirs(unique_temp_dir, exist_ok=True)
@@ -233,6 +310,9 @@ def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, sign
         'messages': serialized_msgs,
         'is_empty': empty
     }
+
+    if research_mode:
+        save_recording(wav_filename, recordings_dir, session_id=session_id, chunk=chunk)
 
     try:
         shutil.rmtree(unique_temp_dir)
