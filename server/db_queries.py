@@ -2,6 +2,8 @@
 
 Provides upsert and read operations against the octavio SQLite database.
 Does not store MIDI data — only session metadata used by the frontend API.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import sqlite3

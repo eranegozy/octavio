@@ -2,6 +2,8 @@
 
 Intended for one-off administrative use (e.g. purging stale test data),
 not called by the server at runtime.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import os

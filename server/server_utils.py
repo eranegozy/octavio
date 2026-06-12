@@ -1,4 +1,7 @@
-"""Server configuration utilities."""
+"""Server configuration utilities.
+
+Note: documentation in this file was written with assistance from AI tools.
+"""
 
 def get_db_filename(is_test):
     """Returns the SQLite database filename for the given environment.

@@ -3,6 +3,8 @@
 Exposes POST endpoints for MIDI chunks and heartbeats, GET endpoints for the
 frontend API, and S3-backed storage helpers. Raw audio is never received here;
 all MIDI arrives pre-extracted and serialized as JSON.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import os

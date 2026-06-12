@@ -2,6 +2,8 @@
 
 Used to silence noisy third-party imports (e.g. Basic Pitch) that write
 warnings directly to stderr even when Python-level logging is quiet.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 from contextlib import contextmanager

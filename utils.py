@@ -2,6 +2,8 @@
 
 Handles the full pipeline from raw PyAudio bytes to serialized MIDI JSON ready
 for transmission, as well as stitching consecutive MIDI chunks together.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import os

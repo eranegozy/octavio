@@ -28,3 +28,6 @@ See [`setup/README.txt`](setup/README.txt) for instructions on provisioning a ne
 ## Privacy
 
 Audio recordings are processed entirely on the Raspberry Pi and discarded immediately after MIDI extraction. The server receives only symbolic MIDI data (note pitches and timings). No audio is stored or transmitted at any point.
+
+---
+*This file was written with assistance from AI tools.*

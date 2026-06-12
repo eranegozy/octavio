@@ -1,6 +1,8 @@
 """Database initialization and test data utilities.
 
 Run directly to create the SQLite schema and optionally seed test data.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import sqlite3

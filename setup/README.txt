@@ -99,3 +99,7 @@ From the server:
 
 From a laptop:
   ssh -J <user>@octavio-server.mit.edu -p <tunnel_port> <client_username>@localhost
+
+
+---
+This file was written with assistance from AI tools.

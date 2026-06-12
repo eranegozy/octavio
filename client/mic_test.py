@@ -2,6 +2,8 @@
 
 Records a short audio clip and saves it as a WAV file to verify that the
 recording device is working before running the full client.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import os

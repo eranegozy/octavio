@@ -4,6 +4,8 @@ Runs on a Raspberry Pi connected to an audio recording device. Manages recording
 sessions, silence detection, user-triggered privacy mode via a physical button,
 and a background heartbeat thread. Raw audio never leaves the device; only
 serialized MIDI JSON is sent to the server.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import os

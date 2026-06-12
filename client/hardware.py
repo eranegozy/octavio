@@ -3,6 +3,8 @@
 Wraps the red/green LED indicators and push button via gpiozero,
 providing simple state-control methods used by the client to signal
 recording and privacy status.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import gpiozero
