@@ -23,7 +23,7 @@ The server merges incoming MIDI chunks into per-session files, stores session me
 
 ## Setup
 
-See [`setup/README.txt`](setup/README.txt) for instructions on provisioning a new Raspberry Pi client and deploying the server.
+See [`setup/README.md`](setup/README.md) for instructions on provisioning a new Raspberry Pi client and deploying the server.
 
 ## Privacy
 
