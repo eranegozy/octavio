@@ -1,3 +1,11 @@
+"""Main Octavio client — records audio, extracts MIDI on-device, and transmits to server.
+
+Runs on a Raspberry Pi connected to an audio recording device. Manages recording
+sessions, silence detection, user-triggered privacy mode via a physical button,
+and a background heartbeat thread. Raw audio never leaves the device; only
+serialized MIDI JSON is sent to the server.
+"""
+
 import os
 import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -55,6 +63,14 @@ for k, v in config.items():
         config[k] = False
 
 class OctavioClient:
+    """Orchestrates audio capture, on-device MIDI extraction, and server transmission.
+
+    Class-level constants define audio format, chunk duration, session limits,
+    silence thresholds, privacy timeout, and server retry behavior. Calibration
+    stats are loaded from infra.json at startup if available; defaults are used
+    otherwise.
+    """
+
     format = pyaudio.paInt16
     num_channels = 1
     sampling_rate = 22050
@@ -89,6 +105,7 @@ class OctavioClient:
     bp_model = Model(_tflite_path)
 
     def __init__(self):
+        """Loads config from infra.json, initializes hardware, and warms up the AMT model."""
         self.hardware = OctavioHardware()
         self.hardware.shine_green()
         signal.signal(signal.SIGTERM, lambda signum, frame: self.on_shutdown())
@@ -164,12 +181,14 @@ class OctavioClient:
         self.exit_flag = threading.Event()
 
     def on_shutdown(self):
+        """SIGTERM/SIGINT handler. Deactivates LEDs, signals threads, and exits."""
         logger.info('System shutting down, performing hardware teardown')
         self.hardware.deactivate_light()
         self.exit_flag.set()
         sys.exit(0)
 
     def create_new_session(self):
+        """Generates a new session ID and resets chunk and silence counters."""
         session_id = utils.generate_id()
         logger.info(f"Creating new session {session_id}")
 
@@ -178,6 +197,7 @@ class OctavioClient:
         self.silence = 0
 
     def end_stream(self):
+        """Creates a new session and closes the current audio stream."""
         self.create_new_session()
 
         logger.info("System closing audio stream")
@@ -185,6 +205,14 @@ class OctavioClient:
         self.stream = None
 
     def update_session(self, current_time):
+        """Checks end-of-session conditions and handles button presses.
+
+        Sets end_stream_flag if the silence threshold or session cap is reached.
+        Toggles privacy mode on/off when the button is pressed with debounce.
+
+        Args:
+            current_time (float): Current time.time() value.
+        """
         session_duration = (self.chunks_sent * self.chunk_secs) / 60
         if (
             (self.silence >= self.silence_threshold and self.chunks_sent > 0) or
@@ -209,6 +237,7 @@ class OctavioClient:
             logger.info(f"User de-requested privacy")
 
     def refresh_client_state(self):
+        """Updates session state and syncs the LED color to the current recording status."""
         current_time = time.time()
         self.update_session(current_time)
 
@@ -219,6 +248,11 @@ class OctavioClient:
         self.hardware.shine_green() if self.is_recording else self.hardware.shine_red()
 
     def identify_recording_device(self):
+        """Prints available audio input devices and prompts the user to select one.
+
+        Returns:
+            int: The selected device index.
+        """
         print("----------------------Recording device list---------------------")
 
         info = self.audio.get_host_api_info_by_index(0)
@@ -232,6 +266,14 @@ class OctavioClient:
         return device_index
 
     def record_audio(self):
+        """Opens a PyAudio stream that processes 30-second chunks via mic_callback.
+
+        Each chunk is silence-checked, MIDI-extracted, and POSTed to the server.
+        On persistent server failure, sets end_stream_flag to trigger a session reset.
+
+        Returns:
+            pyaudio.Stream: The active audio input stream.
+        """
         def mic_callback(input_data, frame_count, time_info, flags):
             now = datetime.datetime.now()
 
@@ -298,6 +340,7 @@ class OctavioClient:
         return stream
 
     def run(self):
+        """Main loop. Opens and manages the audio stream based on recording state."""
         logger.info("Client running")
         while True:
             self.refresh_client_state()
@@ -309,9 +352,11 @@ class OctavioClient:
                 self.end_stream()
     
     def run_heartbeat(self):
+        """Starts the heartbeat daemon thread."""
         self.heartbeat_thread.start()
-    
+
     def heartbeat(self):
+        """Sends a POST to /heartbeat every 30 seconds until the exit flag is set."""
         logger.info("Heartbeat script running")
         while not self.exit_flag.wait(timeout=30):
             logger.info("Sending heartbeat")

@@ -1,3 +1,9 @@
+"""Minimal standalone microphone recording tester.
+
+Records a short audio clip and saves it as a WAV file to verify that the
+recording device is working before running the full client.
+"""
+
 import os
 import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -13,6 +19,11 @@ import log_utils
 import wave
 
 def find_recording_device_index():
+    """Finds the index of the first available audio input device.
+
+    Returns:
+        int: The device index if found; otherwise, -1.
+    """
     with log_utils.no_stderr():
         p = pyaudio.PyAudio()
     for i in range(p.get_device_count()):
@@ -22,6 +33,18 @@ def find_recording_device_index():
     return -1
 
 def record_audio(record_seconds=30, device_index=None):
+    """Records mono audio (22050 Hz, 16-bit) into a NumPy array.
+
+    Args:
+        record_seconds (int): Duration of the recording. Defaults to 30.
+        device_index (int, optional): Hardware device index. If None, auto-detects.
+
+    Returns:
+        np.ndarray: 1D array of np.int16 audio samples.
+
+    Raises:
+        RuntimeError: If device_index is None and no recording device is found.
+    """
     CHUNK = 1024
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
