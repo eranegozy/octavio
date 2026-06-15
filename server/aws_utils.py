@@ -1,3 +1,11 @@
+"""Standalone AWS S3 utility scripts for manual inspection and data cleanup.
+
+Intended for one-off administrative use (e.g. purging stale test data),
+not called by the server at runtime.
+
+Note: documentation in this file was written with assistance from AI tools.
+"""
+
 import os
 import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -25,6 +33,14 @@ s3_client = boto3.client(
     region_name=config['AWS_REGION']
 )
 def list_prefix(prefix):
+    """Lists all S3 object keys under the given prefix.
+
+    Args:
+        prefix (str): S3 key prefix to list.
+
+    Returns:
+        list[str]: Object keys found under the prefix, or an empty list.
+    """
     response = s3_client.list_objects(Bucket=config['BUCKET'], Prefix=prefix)
     if 'Contents' in response:
         return [c['Key'] for c in response['Contents']]
@@ -32,6 +48,11 @@ def list_prefix(prefix):
         return []
 
 def purge_prefix(prefix):
+    """Deletes all S3 objects whose keys start with the given prefix.
+
+    Args:
+        prefix (str): S3 key prefix to purge.
+    """
     for key in list_prefix(prefix):
         try:
             s3_client.delete_object(Bucket=config['BUCKET'], Key=key)
@@ -39,6 +60,14 @@ def purge_prefix(prefix):
             continue
 
 def info_object(key):
+    """Returns metadata for an S3 object, or None if it doesn't exist.
+
+    Args:
+        key (str): S3 object key.
+
+    Returns:
+        dict | None: Object metadata, or None if the key is not found.
+    """
     try:
         response = s3_client.head_object(Bucket=config['BUCKET'], Key=key)
         return response['Metadata']
@@ -49,6 +78,14 @@ def info_object(key):
             raise
 
 def retrieve_object(key):
+    """Downloads and returns the raw bytes of an S3 object, or None if not found.
+
+    Args:
+        key (str): S3 object key.
+
+    Returns:
+        bytes | None: Object body, or None if the key is not found.
+    """
     try:
         response = s3_client.get_object(Bucket=config['BUCKET'], Key=key)
         return response['Body'].read()
@@ -98,6 +135,15 @@ def retrieve_object(key):
 #     return True
 
 def purge_range(prefix, start, end):
+    """Deletes chunk and main objects whose timestamps fall within a datetime range.
+
+    Uses the 'time' metadata field for chunk objects and 'time_updated' for main objects.
+
+    Args:
+        prefix (str): S3 key prefix to scan.
+        start (datetime.datetime): Start of the deletion window (inclusive).
+        end (datetime.datetime): End of the deletion window (inclusive).
+    """
     print(start.isoformat(), end.isoformat())
     for key in list_prefix(prefix):
         fname = key.split('/')[-1]

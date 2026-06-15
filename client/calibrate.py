@@ -1,8 +1,10 @@
 """Audio calibration and noise-gating utility module.
 
-This module provides tools to record audio via PyAudio, calculate the Root Mean 
-Square (RMS) profiles of signals, calibrate baseline environmental noise versus 
+This module provides tools to record audio via PyAudio, calculate the Root Mean
+Square (RMS) profiles of signals, calibrate baseline environmental noise versus
 target signals, and apply a calibrated noise gate to denoise audio arrays.
+
+Note: documentation in this file was written with assistance from AI tools.
 """
 
 import os

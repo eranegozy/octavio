@@ -1,3 +1,11 @@
+"""Shared audio processing utilities for MIDI extraction, serialization, and combination.
+
+Handles the full pipeline from raw PyAudio bytes to serialized MIDI JSON ready
+for transmission, as well as stitching consecutive MIDI chunks together.
+
+Note: documentation in this file was written with assistance from AI tools.
+"""
+
 import os
 import sys
 client_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), "./client"))
@@ -26,10 +34,23 @@ import subprocess
 import transkun.transcribe as tk
 
 def generate_id():
+    """Generates a random 10-character alphanumeric ID.
+
+    Returns:
+        str: A lowercase alphanumeric string of length 10.
+    """
     id_options = string.ascii_lowercase + string.digits
     return ''.join(random.choices(population=id_options, k=10))
 
 def wav_to_np(wav_filename):
+    """Loads a WAV file into a NumPy array.
+
+    Args:
+        wav_filename (str): Path to the WAV file.
+
+    Returns:
+        np.ndarray: Array of audio samples.
+    """
     file_contents = read(wav_filename)
     file_data = np.array(file_contents[1])
     return file_data
@@ -39,6 +60,12 @@ def wav_to_np(wav_filename):
 #     scipy.io.wavfile.write(filename, 22050, int16_audio)
 
 def save_frames_to_file(input_data, filename):
+    """Saves a float64 audio array as a 16-bit mono WAV file at 22050 Hz.
+
+    Args:
+        input_data (np.ndarray): 1D array of np.float64 audio samples.
+        filename (str): Output file path.
+    """
     # Accepts input_data as an np.float64 array
 
     # audio = pyaudio.PyAudio()
@@ -66,6 +93,16 @@ def save_frames_to_file(input_data, filename):
 #         subprocess.run(command_args)
 
 def convert_to_midi_bp(input_audio, output_dir, bp_model):
+    """Runs Basic Pitch AMT on a WAV file and returns the output MIDI path.
+
+    Args:
+        input_audio (str): Path to the input WAV file.
+        output_dir (str): Directory where Basic Pitch writes its output.
+        bp_model (Model): Pre-loaded Basic Pitch TFLite model instance.
+
+    Returns:
+        str: Path to the generated MIDI file.
+    """
     audio_files = [input_audio]
     predict_and_save(
         audio_path_list=audio_files,
@@ -88,11 +125,24 @@ def convert_to_midi_bp(input_audio, output_dir, bp_model):
     return bp_out_path
 
 def display_midi(midi_filename):
+    """Loads a MIDI file for inspection. Currently a no-op placeholder.
+
+    Args:
+        midi_filename (str): Path to the MIDI file.
+    """
     mid = mido.MidiFile(midi_filename)
     # for msg in mid:
     #     print(msg)
 
 def copy_midi_object(mid):
+    """Returns a deep copy of a MidiFile object.
+
+    Args:
+        mid (mido.MidiFile): The MIDI object to copy.
+
+    Returns:
+        mido.MidiFile: A new MidiFile with independent copies of all tracks and messages.
+    """
     output = mido.MidiFile(
         type=mid.type,
         ticks_per_beat=mid.ticks_per_beat
@@ -107,6 +157,19 @@ def copy_midi_object(mid):
     return output
 
 def combine_midi_objects(midi1, midi2):
+    """Concatenates two MidiFile objects, reconciling boundary note clipping.
+
+    Notes cut off at the end of midi1 that reappear at the start of midi2
+    (within START_END_THRESHOLD seconds) are deduplicated to avoid double
+    note-on events at the seam.
+
+    Args:
+        midi1 (mido.MidiFile): The earlier MIDI chunk.
+        midi2 (mido.MidiFile): The later MIDI chunk to append.
+
+    Returns:
+        mido.MidiFile: A new MidiFile containing the merged content.
+    """
     START_END_THRESHOLD = 0.25
 
     mid1 = midi1
@@ -171,6 +234,13 @@ def combine_midi_objects(midi1, midi2):
     return output_mid
 
 def combine_midi(midi_filename1, midi_filename2, output_filename):
+    """File-level wrapper for combine_midi_objects. Loads, merges, and saves.
+
+    Args:
+        midi_filename1 (str): Path to the earlier MIDI file.
+        midi_filename2 (str): Path to the later MIDI file.
+        output_filename (str): Path to write the merged output.
+    """
     mid1 = mido.MidiFile(midi_filename1)
     mid2 = mido.MidiFile(midi_filename2)
     output_mid = combine_midi_objects(mid1, mid2)
@@ -178,6 +248,16 @@ def combine_midi(midi_filename1, midi_filename2, output_filename):
     output_mid.save(output_filename)
 
 def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
+    """Applies calibrated noise-gating to an audio array.
+
+    Args:
+        input_data (np.ndarray): 1D float64 audio samples.
+        noise_quartiles (tuple): (25th, 50th, 75th) RMS percentiles from noise calibration.
+        signal_quartiles (tuple): (25th, 50th, 75th) RMS percentiles from signal calibration.
+
+    Returns:
+        np.ndarray: Denoised float64 audio array.
+    """
     # Expects an np.float64 array, outputs one as well
     denoised = calibrate.denoise_signal(signal=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
     return denoised
@@ -237,6 +317,18 @@ def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_
 
 
 def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
+    """Transkun-based MIDI extraction implementation (currently unused).
+
+    Args:
+        input_bytes (bytes): Raw audio bytes from PyAudio (paInt16 format).
+        bp_model (Model): Unused; kept for signature compatibility.
+        noise_quartiles (tuple): Unused; kept for signature compatibility.
+        signal_quartiles (tuple): Unused; kept for signature compatibility.
+        temp_dir (str): Directory for temporary files. Defaults to './temps'.
+
+    Returns:
+        dict: Contains 'ticks_per_beat', 'messages', and 'is_empty' (always False).
+    """
     temp_id = generate_id()
     unique_temp_dir = f'{temp_dir}/{temp_id}'
     os.makedirs(unique_temp_dir, exist_ok=True)
@@ -329,6 +421,17 @@ def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, sign
     return midi_info
 
 def serialize_midi_object(midi_object):
+    """Serializes a MidiFile to a JSON-compatible list of messages and ticks_per_beat.
+
+    Meta messages are serialized as dicts; regular messages as strings.
+    Multi-track files are merged into a single track before serialization.
+
+    Args:
+        midi_object (mido.MidiFile): The MIDI object to serialize.
+
+    Returns:
+        tuple: (list[str | dict], int) — messages and ticks_per_beat.
+    """
     mid = midi_object
     if len(mid.tracks) > 1:
         mid.tracks = [mido.merge_tracks(mid.tracks)]
@@ -341,10 +444,27 @@ def serialize_midi_object(midi_object):
     return msgs, tpb
 
 def serialize_midi_file(midi_filename):
+    """File-level wrapper for serialize_midi_object.
+
+    Args:
+        midi_filename (str): Path to the MIDI file.
+
+    Returns:
+        tuple: (list[str | dict], int) — messages and ticks_per_beat.
+    """
     mid = mido.MidiFile(midi_filename)
     return serialize_midi_object(mid)
 
 def deserialize_midi_object(msgs, ticks_per_beat):
+    """Reconstructs a MidiFile from a serialized message list.
+
+    Args:
+        msgs (list[str | dict]): Serialized messages as returned by serialize_midi_object.
+        ticks_per_beat (int): MIDI timing resolution.
+
+    Returns:
+        mido.MidiFile: The reconstructed MIDI object.
+    """
     track = mido.MidiTrack()
     mid = mido.MidiFile(ticks_per_beat=ticks_per_beat, tracks=[track])
 
@@ -358,10 +478,25 @@ def deserialize_midi_object(msgs, ticks_per_beat):
     return mid
 
 def deserialize_midi_file(msgs, ticks_per_beat, out_filename):
+    """Deserializes a message list and saves the result to a MIDI file.
+
+    Args:
+        msgs (list[str | dict]): Serialized messages as returned by serialize_midi_object.
+        ticks_per_beat (int): MIDI timing resolution.
+        out_filename (str): Path to write the output MIDI file.
+    """
     mid = deserialize_midi_object(msgs, ticks_per_beat)
     mid.save(out_filename)
 
 def midi_is_empty(midi_filename):
+    """Returns True if the MIDI file contains no note_on events.
+
+    Args:
+        midi_filename (str): Path to the MIDI file.
+
+    Returns:
+        bool: True if no notes are present, False otherwise.
+    """
     mid = mido.MidiFile(midi_filename)
     for msg in mid:
         if msg.type == 'note_on':
@@ -369,6 +504,16 @@ def midi_is_empty(midi_filename):
     return True
 
 def is_silent(input_bytes, window_length = 2048, threshold = 0.001):
+    """Returns True if all energy windows in the audio are below the threshold.
+
+    Args:
+        input_bytes (bytes): Raw audio bytes from PyAudio (paInt16 format).
+        window_length (int): Analysis window size in samples. Defaults to 2048.
+        threshold (float): Energy threshold for silence detection. Defaults to 0.001.
+
+    Returns:
+        bool: True if the audio is silent, False otherwise.
+    """
     input_data = np.frombuffer(input_bytes, dtype=np.int16).astype(np.float64)
     input_data /= 2 ** 15
     padding = window_length - (len(input_data) % window_length)
@@ -378,6 +523,12 @@ def is_silent(input_bytes, window_length = 2048, threshold = 0.001):
     return np.all(energy < threshold)
 
 def tk_subprocess(input_fname, output_fname):
+    """Runs Transkun transcription as a subprocess using python3.10.
+
+    Args:
+        input_fname (str): Path to the input WAV file.
+        output_fname (str): Path to write the output MIDI file.
+    """
     subprocess.run([
         "python3.10", "-m", "transkun.transcribe", input_fname, output_fname
     ])

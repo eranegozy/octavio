@@ -1,3 +1,12 @@
+"""Flask server that receives MIDI data from Pi clients and serves it to the frontend.
+
+Exposes POST endpoints for MIDI chunks and heartbeats, GET endpoints for the
+frontend API, and S3-backed storage helpers. Raw audio is never received here;
+all MIDI arrives pre-extracted and serialized as JSON.
+
+Note: documentation in this file was written with assistance from AI tools.
+"""
+
 import os
 import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -64,6 +73,7 @@ def hello_world():
     
 @app.route("/heartbeat", methods=['POST'])
 def add_heartbeat():
+    """Receives a heartbeat from a Pi client and logs it to S3 and in-memory state."""
     j = request.json
     
     iid = j['instrument_id']
@@ -88,6 +98,7 @@ def add_heartbeat():
 
 @app.route("/piano", methods=['POST'])
 def add_piano_music():
+    """Receives a serialized MIDI chunk, appends it to the running session file, and updates the DB."""
     is_test = current_app.config['is_test']
 
     j = request.json
@@ -191,12 +202,18 @@ def add_piano_music():
 
 @app.route("/api/instruments", methods=['GET'])
 def get_instruments():
+    """Returns all instrument records from the database."""
     is_test = current_app.config['is_test']
     instruments = db_queries.get_db_instruments(is_test)
     return instruments
 
 @app.route('/api/midi', methods=['GET'])
 def get_midi():
+    """Returns the cumulative MIDI file for a session as an audio/midi download.
+
+    If USE_AWS is enabled, triggers chunk merging before serving from S3.
+    Query params: session_id, instrument_id.
+    """
     query_params = request.args
     sid = query_params['session_id']
     iid = query_params['instrument_id']
@@ -229,6 +246,7 @@ def get_midi():
 
 @app.route('/api/instrument', methods=['GET'])
 def get_instrument_data():
+    """Returns the most recent sessions for a given instrument. Query param: instrument_id."""
     is_test = current_app.config['is_test']
     query_params = request.args
     iid = query_params['instrument_id']
@@ -237,10 +255,12 @@ def get_instrument_data():
     
 @app.route('/api/whatsup', methods=['GET'])
 def get_whats_up():
+    """Returns in-memory last-heartbeat timestamps keyed by instrument_id. Not persisted."""
     return instrument_info
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
+    """Returns the S3 activity log for a given date. Query param: date (ISO format, defaults to today)."""
     s3_client = get_aws_client()
     date = request.args.get('date')
     logs = read_log_aws(s3_client, datetime.datetime.today() if date is None else datetime.datetime.fromisoformat(date))
@@ -249,6 +269,7 @@ def get_logs():
 
 @app.route('/api/online_instruments', methods=['GET'])
 def get_online_instruments():
+    """Returns instrument IDs that sent a heartbeat within the last 5 minutes."""
     TIME_DELTA = datetime.timedelta(minutes = 5)
     compare_time = datetime.datetime.now() - TIME_DELTA
 
@@ -267,6 +288,7 @@ def add_keyboard_music():
 
 @app.route("/merge", methods=['PATCH'])
 def do_merge():
+    """Manually triggers S3 chunk merging for a session. Body: session_id, instrument_id."""
     if app.config['USE_AWS']:
         j = request.json
         sid = j['session_id']
@@ -281,6 +303,11 @@ def do_merge():
         return "Aborted"
 
 def get_aws_client():
+    """Creates and returns a boto3 S3 client using credentials from app config.
+
+    Returns:
+        boto3.client: An authenticated S3 client.
+    """
     return boto3.client(
         's3',
         aws_access_key_id=app.config['AWS_ACCESS_KEY_ID'],
@@ -289,6 +316,21 @@ def get_aws_client():
     )
 
 def write_midi_to_file_aws(s3_client, midi_object, target_key, metadata={}, etag=None):
+    """Writes a MidiFile object to S3, with optional optimistic concurrency via ETag.
+
+    If etag is provided, uses IfMatch to prevent overwriting a concurrently modified object.
+    If etag is None, uses IfNoneMatch='*' to prevent overwriting an existing object.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        midi_object (mido.MidiFile): The MIDI object to upload.
+        target_key (str): S3 object key to write to.
+        metadata (dict): S3 object metadata to attach. Defaults to {}.
+        etag (str, optional): ETag for conditional write. Defaults to None.
+
+    Returns:
+        bool: True on success, False if the precondition failed.
+    """
     buffer = BytesIO()
     midi_object.save(file=buffer)
     buffer.seek(0)
@@ -318,8 +360,14 @@ def write_midi_to_file_aws(s3_client, midi_object, target_key, metadata={}, etag
         raise
 
 def read_midi_from_file_aws(s3_client, target_key):
-    """
-    Returns a tuple (midi object, metadata, etag) or None if the key doesn't exist
+    """Downloads a MIDI file from S3 and returns it with its metadata and ETag.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        target_key (str): S3 object key to read.
+
+    Returns:
+        tuple | None: (mido.MidiFile, dict, str) on success, or None if the key doesn't exist.
     """
     buffer = BytesIO()
     try:
@@ -336,6 +384,16 @@ def read_midi_from_file_aws(s3_client, target_key):
     return mido.MidiFile(file=buffer), response['Metadata'], response['ETag']
 
 def get_chunk_filename_aws(iid, session_id, chunk):
+    """Returns the S3 key for a specific chunk object.
+
+    Args:
+        iid (str): Instrument ID.
+        session_id (str): Session ID.
+        chunk (int): Chunk index.
+
+    Returns:
+        str: S3 key of the form '{env}/ins_{iid}/{session_id}/chunk_{chunk}'.
+    """
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
     instrument_directory = f'ins_{iid}'
     session_directory = f'{session_id}'
@@ -343,12 +401,29 @@ def get_chunk_filename_aws(iid, session_id, chunk):
     return f'{db_type}/{instrument_directory}/{session_directory}/{chunk_file}'
 
 def get_cumulative_filename_aws(iid, session_id):
+    """Returns the S3 key for the cumulative (merged) MIDI object for a session.
+
+    Args:
+        iid (str): Instrument ID.
+        session_id (str): Session ID.
+
+    Returns:
+        str: S3 key of the form '{env}/ins_{iid}/{session_id}/main'.
+    """
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
     instrument_directory = f'ins_{iid}'
     session_directory = f'{session_id}'
     return f'{db_type}/{instrument_directory}/{session_directory}/main'
 
 def get_log_filename_aws(date):
+    """Returns the S3 key for the daily log file.
+
+    Args:
+        date (datetime.date | datetime.datetime): The date of the log.
+
+    Returns:
+        str: S3 key of the form '{env}/logs/{year}/{month}/{day}.txt'.
+    """
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
     year = str(date.year)
     month = str(date.month)
@@ -356,12 +431,17 @@ def get_log_filename_aws(date):
     return f'{db_type}/logs/{year}/{month}/{day}.txt'
 
 def append_log_aws(s3_client, date, json_object):
-    """
-    Appends a json object to the log file for the given day.
-    Creates the log file if it doesn't exist.
-    The log file is a text file where each line is a separate json object.
+    """Appends a JSON object as a new line to the daily S3 log file, creating it if needed.
 
-    Returns true on success, false on failure.
+    Uses ETag-based optimistic concurrency to avoid lost updates.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        date (datetime.date): The date of the log file to append to.
+        json_object (dict): The log entry to append.
+
+    Returns:
+        bool: True on success, False if a concurrent write caused a precondition failure.
     """
     log_key = get_log_filename_aws(date)
     response = None
@@ -401,6 +481,15 @@ def append_log_aws(s3_client, date, json_object):
         raise
 
 def read_log_aws(s3_client, date):
+    """Reads and parses the daily S3 log file into a list of JSON objects.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        date (datetime.date | datetime.datetime): The date of the log to read.
+
+    Returns:
+        list[dict] | None: Parsed log entries, or None if the file doesn't exist.
+    """
     log_key = get_log_filename_aws(date)
     try:
         response = s3_client.get_object(Bucket=app.config['BUCKET'], Key=log_key)
@@ -414,8 +503,15 @@ def read_log_aws(s3_client, date):
             raise
 
 def create_session_aws(s3_client, iid, session_id):
-    """
-    Returns true on success, false if the session already exists
+    """Creates an empty cumulative MIDI object in S3 for a new session.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        iid (str): Instrument ID.
+        session_id (str): Session ID.
+
+    Returns:
+        bool: True on success, False if the session already exists.
     """
     try:
         s3_client.head_object(Bucket=app.config['BUCKET'], Key=get_cumulative_filename_aws(iid, session_id))  
@@ -451,8 +547,18 @@ def create_session_aws(s3_client, iid, session_id):
         return False
 
 def merge_chunks_aws(s3_client, iid, session_id):
-    """
-    Attempts to merge chunks.
+    """Merges unprocessed S3 chunk objects into the session's cumulative MIDI file.
+
+    Processes chunks in order, stopping if a gap is detected. Updates max_chunk
+    metadata on the cumulative object after each successful merge.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        iid (str): Instrument ID.
+        session_id (str): Session ID.
+
+    Returns:
+        bool: True on success or if there are no chunks to merge, False on failure.
     """
     db_type = 'prod' if app.config['IS_PROD'] else 'test'
     instrument_directory = f'ins_{iid}'
@@ -502,6 +608,16 @@ def merge_chunks_aws(s3_client, iid, session_id):
     )
 
 def purge_chunks_aws(s3_client, iid, session_id):
+    """Deletes all chunk objects that have already been merged into the cumulative file.
+
+    Args:
+        s3_client: A boto3 S3 client.
+        iid (str): Instrument ID.
+        session_id (str): Session ID.
+
+    Returns:
+        bool: True on success, False if the cumulative file is not found.
+    """
     response = None
     try:
         response = s3_client.head_object(Bucket=app.config['BUCKET'], Key=get_cumulative_filename_aws(iid, session_id))  

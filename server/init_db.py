@@ -1,8 +1,20 @@
+"""Database initialization and test data utilities.
+
+Run directly to create the SQLite schema and optionally seed test data.
+
+Note: documentation in this file was written with assistance from AI tools.
+"""
+
 import sqlite3
 from contextlib import closing
 import server_utils
 
 def create_db(is_test=False):
+    """Creates the SQLite schema by executing sql_scripts/create_db.sql.
+
+    Args:
+        is_test (bool): If True, initializes the test database. Defaults to False.
+    """
     db_filename = server_utils.get_db_filename(is_test)
 
     creator_sql_filename = './sql_scripts/create_db.sql'
@@ -15,6 +27,7 @@ def create_db(is_test=False):
             connection.commit()
 
 def insert_test_data():
+    """Inserts a fixed set of sample sessions into the test database."""
     db_filename = server_utils.get_db_filename(is_test=True)
     test_dataset = [
         {"session_id": "4cjlh0q21j", "instrument_id": "5"},
@@ -36,6 +49,11 @@ def insert_test_data():
 
 
 def inspect_db(is_test=False):
+    """Prints table names and a sample of session rows for debugging.
+
+    Args:
+        is_test (bool): If True, inspects the test database. Defaults to False.
+    """
     db_filename = server_utils.get_db_filename(is_test)
     with sqlite3.connect(db_filename) as connection:
         with closing(connection.cursor()) as cursor:
