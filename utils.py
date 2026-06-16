@@ -249,7 +249,7 @@ def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
     return denoised
 
 
-def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None):
+def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None, instrument_id=None, timestamp=None):
     """Converts a raw audio chunk into serialized MIDI, optionally preserving the audio.
 
     Thin dispatcher around extract_midi_old_implementation. Audio is always
@@ -279,7 +279,7 @@ def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_
     return extract_midi_old_implementation(
         input_bytes, bp_model, noise_quartiles, signal_quartiles,
         temp_dir=temp_dir, research_mode=research_mode, recordings_dir=recordings_dir,
-        session_id=session_id, chunk=chunk
+        session_id=session_id, chunk=chunk, instrument_id=instrument_id, timestamp=timestamp
     )
     # extract_midi_implementation(input_bytes, temp_dir='./temps')
 
@@ -322,7 +322,7 @@ def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_q
 
     return midi_info
 
-def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None):
+def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None, instrument_id=None, timestamp=None):
     """Denoises a raw audio chunk, transcribes it to MIDI, and cleans up scratch files.
 
     The chunk is written to a per-call scratch directory under temp_dir, run
@@ -373,7 +373,8 @@ def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, sign
 
     if research_mode:
         os.makedirs(recordings_dir, exist_ok=True)
-        dest_name = f'{session_id}_{chunk:04d}.wav' if (session_id is not None and chunk is not None) else os.path.basename(wav_filename)
+        ts = timestamp.strftime('%Y-%m-%d_%H-%M-%S') if timestamp is not None else 'unknown'
+        dest_name = f'{instrument_id}_{ts}_{chunk:04d}.wav' if (instrument_id is not None and chunk is not None) else os.path.basename(wav_filename)
         shutil.copy2(wav_filename, os.path.join(recordings_dir, dest_name))
 
     try:

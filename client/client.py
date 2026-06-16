@@ -301,7 +301,9 @@ class OctavioClient:
                     research_mode=config.get('RESEARCH_MODE', False),
                     recordings_dir=self.recordings_dir,
                     session_id=self.session,
-                    chunk=self.chunks_sent
+                    chunk=self.chunks_sent,
+                    instrument_id=self.instrument_id,
+                    timestamp=now
                 )
                 logger.info("MIDI extracted")
 
