@@ -59,27 +59,13 @@ def wav_to_np(wav_filename):
 #     int16_audio = np.int16(audio_array)
 #     scipy.io.wavfile.write(filename, 22050, int16_audio)
 
-def save_frames_to_file(input_data, filename):
+def write_wav(input_data, filename):
     """Saves a float64 audio array as a 16-bit mono WAV file at 22050 Hz.
 
     Args:
         input_data (np.ndarray): 1D array of np.float64 audio samples.
         filename (str): Output file path.
     """
-    # Accepts input_data as an np.float64 array
-
-    # audio = pyaudio.PyAudio()
-    # FORMAT = pyaudio.paInt16
-    # SAMPLING_RATE = 22050
-    # NUM_CHANNELS = 1
-
-    # waveFile = wave.open(filename, 'wb')
-    # waveFile.setsampwidth(audio.get_sample_size(FORMAT))
-    # waveFile.setnchannels(NUM_CHANNELS)
-    # waveFile.setframerate(SAMPLING_RATE)
-    # waveFile.writeframes(bytes(frame_data))
-    # waveFile.close()
-
     SAMPLING_RATE = 22050
     int16_audio = np.int16(input_data)
     scipy.io.wavfile.write(filename, SAMPLING_RATE, int16_audio)
@@ -262,24 +248,6 @@ def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
     denoised = calibrate.denoise_signal(signal=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
     return denoised
 
-def save_recording(wav_filename, recordings_dir, session_id=None, chunk=None):
-    """Copies a chunk's audio out of its temp dir so it survives temp cleanup.
-
-    Args:
-        wav_filename (str): Path to the WAV file to preserve.
-        recordings_dir (str): Directory to copy the recording into. Created if missing.
-        session_id (str, optional): Session identifier, used to build a stable
-            destination filename alongside chunk. If either session_id or chunk
-            is None, the original filename is reused instead.
-        chunk (int, optional): Chunk index within the session, used to build the
-            destination filename.
-    """
-    os.makedirs(recordings_dir, exist_ok=True)
-    if session_id is not None and chunk is not None:
-        dest_name = f'{session_id}_{chunk:04d}.wav'
-    else:
-        dest_name = os.path.basename(wav_filename)
-    shutil.copy2(wav_filename, os.path.join(recordings_dir, dest_name))
 
 def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None):
     """Converts a raw audio chunk into serialized MIDI, optionally preserving the audio.
@@ -336,7 +304,7 @@ def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_q
     input_data = np.frombuffer(input_bytes, dtype=np.int16).astype(np.float64) # assumes PyAudio dtype is pyaudio.paInt16
     wave_filename = f'{unique_temp_dir}/{temp_id}.wav'
     mid_filename = f'{unique_temp_dir}/{temp_id}.mid'
-    save_frames_to_file(input_data=input_data, filename=wave_filename)
+    write_wav(input_data=input_data, filename=wave_filename)
     tk_subprocess(wave_filename, mid_filename)
 
     serialized_msgs, tpb = serialize_midi_file(midi_filename=mid_filename)
@@ -392,7 +360,7 @@ def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, sign
     preprocessed_audio = preprocess_audio(input_data=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
 
     wav_filename = f'{unique_temp_dir}/{temp_id}.wav'
-    save_frames_to_file(input_data=input_data, filename=wav_filename) # save raw input data
+    write_wav(input_data=preprocessed_audio, filename=wav_filename)
     mid_filename = convert_to_midi_bp(input_audio=wav_filename, output_dir=unique_temp_dir, bp_model=bp_model)
     empty = midi_is_empty(midi_filename=mid_filename)
 
@@ -404,7 +372,9 @@ def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, sign
     }
 
     if research_mode:
-        save_recording(wav_filename, recordings_dir, session_id=session_id, chunk=chunk)
+        os.makedirs(recordings_dir, exist_ok=True)
+        dest_name = f'{session_id}_{chunk:04d}.wav' if (session_id is not None and chunk is not None) else os.path.basename(wav_filename)
+        shutil.copy2(wav_filename, os.path.join(recordings_dir, dest_name))
 
     try:
         shutil.rmtree(unique_temp_dir)

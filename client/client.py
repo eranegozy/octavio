@@ -170,7 +170,7 @@ class OctavioClient:
 
         warmup_frames = np.zeros(self.sampling_rate)
         warmup_filename = f'{self.temp_dir}/warmup.wav'
-        utils.save_frames_to_file(warmup_frames, warmup_filename)
+        utils.write_wav(warmup_frames, warmup_filename)
         warmup_midi = utils.convert_to_midi_bp(input_audio=warmup_filename, output_dir=self.temp_dir, bp_model=self.bp_model)
         os.remove(warmup_midi)
 
