@@ -299,7 +299,7 @@ class OctavioClient:
                     signal_quartiles=self.signal_quartiles,
                     temp_dir=self.temp_dir,
                     research_mode=config.get('RESEARCH_MODE', False),
-                    recordings_dir=self.recordings_dir,
+                    recordings_dir=os.path.join(self.recordings_dir, self.session),
                     session_id=self.session,
                     chunk=self.chunks_sent,
                     instrument_id=self.instrument_id,
