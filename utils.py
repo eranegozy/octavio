@@ -392,7 +392,7 @@ def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, sign
     preprocessed_audio = preprocess_audio(input_data=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
 
     wav_filename = f'{unique_temp_dir}/{temp_id}.wav'
-    save_frames_to_file(input_data=preprocessed_audio, filename=wav_filename)
+    save_frames_to_file(input_data=input_data, filename=wav_filename) # save raw input data
     mid_filename = convert_to_midi_bp(input_audio=wav_filename, output_dir=unique_temp_dir, bp_model=bp_model)
     empty = midi_is_empty(midi_filename=mid_filename)
 
