@@ -31,7 +31,7 @@ import scipy.io
 import calibrate
 
 import subprocess
-import transkun.transcribe as tk
+# import transkun.transcribe as tk  # unused; transkun not installed in client venv
 
 def generate_id():
     """Generates a random 10-character alphanumeric ID.
