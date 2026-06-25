@@ -42,7 +42,7 @@ def write_recording_device_index(device_index):
         FileNotFoundError: If the './infra.json' file does not exist.
         json.JSONDecodeError: If the JSON file contains invalid syntax.
     """
-    with open('./infra.json', 'r') as f:
+    with open(f'{project_root}/client/infra.json', 'r') as f:
         j = json.load(f)
 
     j['RECORDING_DEVICE_INDEX'] = device_index
