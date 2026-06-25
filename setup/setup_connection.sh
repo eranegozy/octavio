@@ -3,10 +3,10 @@ set -e
 
 # Setting up useful variables
 
-export SUDO_USER="eric"
+export SUDO_USER="octavio"
 export SERVER_USERNAME="ayyub"
 export SERVER_HOSTNAME="octavio-server.mit.edu"
-export CLIENT_USERNAME="eric"
+export CLIENT_USERNAME="octavio"
 export USER_DIRECTORY="/home/$CLIENT_USERNAME"
 export OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/octavio"
 
