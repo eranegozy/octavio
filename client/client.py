@@ -102,18 +102,17 @@ class OctavioClient:
     midi_request_url = f'{server_url}{midi_endpoint_url}'
     heartbeat_request_url = f'{server_url}{heartbeat_endpoint_url}'
 
-    with log_utils.no_stderr():
-        audio = pyaudio.PyAudio()
-
-    _tflite_path = build_icassp_2022_model_path(FilenameSuffix.tflite)
-    bp_model = Model(_tflite_path)
-
     def __init__(self):
         """Loads config from infra.json, initializes hardware, and warms up the AMT model."""
+
+        # Initialize hardware
+
         self.hardware = OctavioHardware()
         self.hardware.shine_green()
         signal.signal(signal.SIGTERM, lambda signum, frame: self.on_shutdown())
         signal.signal(signal.SIGINT, lambda signum, frame: self.on_shutdown())
+
+        # Start session
 
         self.privacy_last_requested = None
         self.last_hardware_interaction = time.time()
@@ -124,6 +123,13 @@ class OctavioClient:
         self.chunks_sent = 0
         self.silence = 0
         self.end_stream_flag = False
+
+        # Load PyAudio
+        
+        with log_utils.no_stderr():
+            self.audio = pyaudio.PyAudio()
+
+        # Load infra.json values
 
         with open('./infra.json', 'r') as f:
             self.infra = json.load(f)
@@ -165,6 +171,12 @@ class OctavioClient:
         if config.get('RESEARCH_MODE', False):
             logger.info(f"Research mode enabled, recordings will be preserved in {self.recordings_dir}")
             os.makedirs(self.recordings_dir, exist_ok=True)
+
+
+        # Initializing model
+
+        _tflite_path = build_icassp_2022_model_path(FilenameSuffix.tflite)
+        self.bp_model = Model(_tflite_path)
 
         logger.info("AMT model attempting to warm up")
 
