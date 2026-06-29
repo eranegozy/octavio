@@ -94,7 +94,9 @@ class OctavioClient:
     default_signal_std = 125.83
 
     temp_dir = './temps'
-    recordings_dir = './recordings'
+    pending_audio_dir = './pending-audio'
+    transcription_dir = './transcription'
+    finished_audio_dir = './finished-audio'
 
     server_url = config['SERVER_URL']
     midi_endpoint_url = '/piano'
@@ -168,9 +170,12 @@ class OctavioClient:
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
 
+        os.makedirs(self.pending_audio_dir, exist_ok=True)
+        os.makedirs(self.transcription_dir, exist_ok=True)
+
         if config.get('RESEARCH_MODE', False):
-            logger.info(f"Research mode enabled, recordings will be preserved in {self.recordings_dir}")
-            os.makedirs(self.recordings_dir, exist_ok=True)
+            logger.info(f"Research mode enabled, finished recordings will be preserved in {self.finished_audio_dir}")
+            os.makedirs(self.finished_audio_dir, exist_ok=True)
 
 
         # Initializing model
@@ -199,6 +204,9 @@ class OctavioClient:
         # heartbeat
         self.heartbeat_thread = threading.Thread(target = self.heartbeat, daemon=True)
         self.exit_flag = threading.Event()
+
+        # transcription worker (drains the pending-audio queue on its own thread)
+        self.transcription_thread = threading.Thread(target = self.transcription_worker, daemon=True)
 
     def on_shutdown(self):
         """SIGTERM/SIGINT handler. Deactivates LEDs, signals threads, and exits."""
@@ -286,10 +294,11 @@ class OctavioClient:
         return device_index
 
     def record_audio(self):
-        """Opens a PyAudio stream that processes 30-second chunks via mic_callback.
+        """Opens a PyAudio stream that enqueues 30-second chunks via mic_callback.
 
-        Each chunk is silence-checked, MIDI-extracted, and POSTed to the server.
-        On persistent server failure, sets end_stream_flag to trigger a session reset.
+        Each non-silent chunk is denoised and written to the pending-audio
+        queue directory; transcription and server transmission happen later,
+        off this thread, in transcription_worker.
 
         Returns:
             pyaudio.Stream: The active audio input stream.
@@ -298,60 +307,26 @@ class OctavioClient:
             now = datetime.datetime.now()
 
             if utils.is_silent(input_data):
-                logger.info("Audio chunk was silent, skipping MIDI extraction and transmission")
+                logger.info("Audio chunk was silent, skipping recording")
                 self.silence += self.chunk_secs
                 return None, pyaudio.paContinue
-            else:
-                self.silence = 0
-                logger.info("Attempting to extract MIDI")
-                midi_info = utils.extract_midi(
-                    input_bytes=input_data,
-                    bp_model=self.bp_model,
-                    noise_quartiles=self.noise_quartiles,
-                    signal_quartiles=self.signal_quartiles,
-                    temp_dir=self.temp_dir,
-                    research_mode=config.get('RESEARCH_MODE', False),
-                    recordings_dir=os.path.join(self.recordings_dir, self.session),
-                    session_id=self.session,
-                    chunk=self.chunks_sent,
-                    instrument_id=self.instrument_id,
-                    timestamp=now
-                )
-                logger.info("MIDI extracted")
 
-            request_data = {
-                'instrument_id': self.instrument_id,
-                'session_id': self.session,
-                'chunk': self.chunks_sent,
-                'time': now.isoformat(),
-                **midi_info
-            }
-            headers = {
-                'Content-Type': 'application/json'
-            }
+            self.silence = 0
+            input_array = np.frombuffer(input_data, dtype=np.int16).astype(np.float64)
 
-            logger.info(f"Attempting to transmit MIDI for session {self.session}")
-
-            for i in range(self.num_server_attempts):
-                try:
-                    r = requests.post(
-                        self.midi_request_url,
-                        json=request_data,
-                        headers=headers
-                    )
-                except Exception as e:
-                    logger.info(f"Failed attempt {i + 1} to contact server with request, retrying...")
-                    time.sleep(self.server_retry_wait_seconds)
-                else:
-                    logger.info(f"MIDI transmitted successfully for session {self.session}")
-                    self.chunks_sent += 1
-                    return None, pyaudio.paContinue
-
-            logger.info("Failed to contact server with request. Restarting...")
-            time.sleep(self.server_failure_wait_seconds)
-            self.end_stream_flag = True
+            logger.info("Queuing audio chunk for transcription")
+            utils.save_pending_audio(
+                input_data=input_array,
+                noise_quartiles=self.noise_quartiles,
+                signal_quartiles=self.signal_quartiles,
+                pending_dir=self.pending_audio_dir,
+                session_id=self.session,
+                chunk=self.chunks_sent,
+                device_index=self.device_index,
+                timestamp=now
+            )
+            self.chunks_sent += 1
             return None, pyaudio.paContinue
-
 
         chunk_frames = int(math.ceil(self.chunk_secs * self.sampling_rate))
         stream = self.audio.open(
@@ -380,6 +355,107 @@ class OctavioClient:
     def run_heartbeat(self):
         """Starts the heartbeat daemon thread."""
         self.heartbeat_thread.start()
+
+    def run_transcription_worker(self):
+        """Starts the transcription daemon thread."""
+        self.transcription_thread.start()
+
+    def transcription_worker(self):
+        """Drains the pending-audio queue, oldest file first, until the exit flag is set.
+
+        Pending-audio filenames are timestamp-prefixed (see
+        utils.make_pending_audio_filename), so an alphabetical directory
+        listing is equivalent to chronological recording order across all
+        sessions. This keeps recording (mic_callback) decoupled from the
+        comparatively slow AMT transcription step.
+        """
+        logger.info("Transcription worker running")
+        while not self.exit_flag.is_set():
+            pending_files = sorted(
+                f for f in os.listdir(self.pending_audio_dir) if f.endswith('.wav')
+            )
+            if not pending_files:
+                self.exit_flag.wait(timeout=1)
+                continue
+
+            wav_path = os.path.join(self.pending_audio_dir, pending_files[0])
+            try:
+                self.process_pending_audio(wav_path)
+            except Exception as e:
+                logger.info(f"Failed to process {wav_path}: {e}")
+                time.sleep(1)
+
+        logger.info("Transcription worker exiting")
+
+    def process_pending_audio(self, wav_path):
+        """Transcribes one queued WAV file and transmits the resulting MIDI.
+
+        Args:
+            wav_path (str): Path to a WAV file in pending_audio_dir.
+        """
+        metadata = utils.parse_pending_audio_filename(os.path.basename(wav_path))
+        logger.info(f"Transcribing chunk {metadata['chunk']} of session {metadata['session_id']}")
+
+        midi_info = utils.transcribe_pending_audio(
+            wav_path=wav_path,
+            bp_model=self.bp_model,
+            transcription_dir=self.transcription_dir,
+            research_mode=config.get('RESEARCH_MODE', False),
+            finished_audio_dir=self.finished_audio_dir
+        )
+        logger.info(f"MIDI extracted for chunk {metadata['chunk']} of session {metadata['session_id']}")
+
+        self.send_midi_chunk(
+            instrument_id=self.instrument_id,
+            session_id=metadata['session_id'],
+            chunk=metadata['chunk'],
+            time_iso=metadata['timestamp'].isoformat(),
+            midi_info=midi_info
+        )
+
+    def send_midi_chunk(self, instrument_id, session_id, chunk, time_iso, midi_info):
+        """POSTs one transcribed chunk's MIDI to the server, retrying on failure.
+
+        On persistent failure, sets end_stream_flag so the main loop resets
+        the recording session, mirroring the previous synchronous behavior.
+
+        Args:
+            instrument_id: Instrument identifier.
+            session_id (str): Session the chunk belongs to.
+            chunk (int): Index of this chunk within its session.
+            time_iso (str): ISO-formatted recording timestamp.
+            midi_info (dict): Output of utils.transcribe_pending_audio.
+        """
+        request_data = {
+            'instrument_id': instrument_id,
+            'session_id': session_id,
+            'chunk': chunk,
+            'time': time_iso,
+            **midi_info
+        }
+        headers = {
+            'Content-Type': 'application/json'
+        }
+
+        logger.info(f"Attempting to transmit MIDI for session {session_id}")
+
+        for i in range(self.num_server_attempts):
+            try:
+                requests.post(
+                    self.midi_request_url,
+                    json=request_data,
+                    headers=headers
+                )
+            except Exception as e:
+                logger.info(f"Failed attempt {i + 1} to contact server with request, retrying...")
+                time.sleep(self.server_retry_wait_seconds)
+            else:
+                logger.info(f"MIDI transmitted successfully for session {session_id}")
+                return
+
+        logger.info("Failed to contact server with request. Restarting...")
+        time.sleep(self.server_failure_wait_seconds)
+        self.end_stream_flag = True
 
     def heartbeat(self):
         """Sends a POST to /heartbeat every 30 seconds until the exit flag is set."""
@@ -413,4 +489,5 @@ if __name__ == '__main__':
     client = OctavioClient()
     if config['DO_HEARTBEAT']:
         client.run_heartbeat()
+    client.run_transcription_worker()
     client.run()
