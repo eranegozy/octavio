@@ -53,6 +53,7 @@ config = {
     'DO_HEARTBEAT': True,
     'RESEARCH_MODE': False,
     'SERVER_URL': None,
+    'RECORDING_MODE': 'continuous',
 }
 if os.path.isfile("./.env"):
     logger.info("Loading environment variables from .env")
@@ -64,6 +65,13 @@ for k, v in config.items():
         config[k] = True
     elif str(v).strip().lower() == 'false':
         config[k] = False
+
+# RECORDING_MODE: 'continuous' (always listening, button toggles privacy pause)
+# or 'button' (idle until button press, then records exactly one chunk_secs window)
+config['RECORDING_MODE'] = str(config.get('RECORDING_MODE', 'continuous')).strip().lower()
+if config['RECORDING_MODE'] not in ('continuous', 'button'):
+    logger.info(f"Unrecognized RECORDING_MODE '{config['RECORDING_MODE']}', defaulting to 'continuous'")
+    config['RECORDING_MODE'] = 'continuous'
 
 class OctavioClient:
     """Orchestrates audio capture, on-device MIDI extraction, and server transmission.
@@ -117,8 +125,9 @@ class OctavioClient:
         # Start session
 
         self.privacy_last_requested = None
+        self.recording_window_start = None
         self.last_hardware_interaction = time.time()
-        self.is_recording = True
+        self.is_recording = config['RECORDING_MODE'] != 'button'
         self.stream = None
 
         self.session = utils.generate_id()
@@ -235,8 +244,8 @@ class OctavioClient:
     def update_session(self, current_time):
         """Checks end-of-session conditions and handles button presses.
 
-        Sets end_stream_flag if the silence threshold or session cap is reached.
-        Toggles privacy mode on/off when the button is pressed with debounce.
+        Sets end_stream_flag if the silence threshold or session cap is reached,
+        then delegates button/mode logic to the appropriate method.
 
         Args:
             current_time (float): Current time.time() value.
@@ -247,14 +256,23 @@ class OctavioClient:
             (session_duration >= self.session_cap_minutes)
         ):
             self.end_stream_flag = True
-        elif (self.hardware.button_pressed and
+            return
+
+        if config['RECORDING_MODE'] == 'button':
+            self._update_session_button_mode(current_time)
+        else:
+            self._update_session_continuous_mode(current_time)
+
+    def _update_session_continuous_mode(self, current_time):
+        """Button toggles privacy pause (existing behavior)."""
+        if (self.hardware.button_pressed and
               self.is_recording and
               current_time - self.last_hardware_interaction >= self.hardware_interaction_wait_seconds
         ):
             self.privacy_last_requested = current_time
             self.last_hardware_interaction = current_time
             self.end_stream_flag = True
-            logger.info(f"User requested privacy")
+            logger.info("User requested privacy")
         elif (
             self.hardware.button_pressed and
             not self.is_recording and
@@ -262,17 +280,35 @@ class OctavioClient:
         ):
             self.privacy_last_requested = None
             self.last_hardware_interaction = current_time
-            logger.info(f"User de-requested privacy")
+            logger.info("User de-requested privacy")
+
+    def _update_session_button_mode(self, current_time):
+        """Button press opens a single chunk_secs recording window; ignored while recording."""
+        if self.recording_window_start is not None:
+            if current_time - self.recording_window_start >= self.chunk_secs:
+                self.recording_window_start = None
+                self.is_recording = False
+                self.end_stream_flag = True
+                logger.info("Button-triggered recording window complete")
+        elif (
+            self.hardware.button_pressed and
+            current_time - self.last_hardware_interaction >= self.hardware_interaction_wait_seconds
+        ):
+            self.last_hardware_interaction = current_time
+            self.recording_window_start = current_time
+            self.is_recording = True
+            logger.info("User triggered a recording window")
 
     def refresh_client_state(self):
         """Updates session state and syncs the LED color to the current recording status."""
         current_time = time.time()
         self.update_session(current_time)
 
-        self.is_recording = (
-            self.privacy_last_requested is None or
-            (current_time - self.privacy_last_requested) / 60 >= self.privacy_minutes
-        )
+        if config['RECORDING_MODE'] != 'button':
+            self.is_recording = (
+                self.privacy_last_requested is None or
+                (current_time - self.privacy_last_requested) / 60 >= self.privacy_minutes
+            )
         self.hardware.shine_green() if self.is_recording else self.hardware.shine_red()
 
     def identify_recording_device(self):
