@@ -14,6 +14,7 @@ if client_directory not in sys.path:
 
 import log_utils
 import string
+import datetime
 import numpy as np
 # import pyaudio
 # import wave
@@ -249,147 +250,119 @@ def preprocess_audio(input_data, noise_quartiles, signal_quartiles):
     return denoised
 
 
-def extract_midi(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None, instrument_id=None, timestamp=None):
-    """Converts a raw audio chunk into serialized MIDI, optionally preserving the audio.
+PENDING_AUDIO_TIMESTAMP_FORMAT = '%Y%m%d%H%M%S%f'
 
-    Thin dispatcher around extract_midi_old_implementation. Audio is always
-    processed via a scratch directory under temp_dir, which is removed once
-    MIDI extraction completes. When research_mode is True, the preprocessed
-    WAV for this chunk is additionally copied to recordings_dir before that
-    cleanup happens, so it remains available after transcription.
+def make_pending_audio_filename(session_id, chunk, device_index, timestamp):
+    """Builds a sortable filename for a queued pending-audio WAV file.
 
-    Args:
-        input_bytes (bytes): Raw PCM audio (int16) for one chunk.
-        bp_model: Loaded Basic Pitch model used for transcription.
-        noise_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for noise.
-        signal_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for signal.
-        temp_dir (str): Base directory for scratch files. Defaults to './temps'.
-        research_mode (bool): If True, keep a copy of this chunk's audio in
-            recordings_dir after transcription. Defaults to False.
-        recordings_dir (str): Directory where preserved recordings are written
-            when research_mode is True. Defaults to './recordings'.
-        session_id (str, optional): Current session identifier, used to name
-            the preserved recording.
-        chunk (int, optional): Index of this chunk within the session, used to
-            name the preserved recording.
-
-    Returns:
-        dict: MIDI info with keys 'ticks_per_beat', 'messages', and 'is_empty'.
-    """
-    return extract_midi_old_implementation(
-        input_bytes, bp_model, noise_quartiles, signal_quartiles,
-        temp_dir=temp_dir, research_mode=research_mode, recordings_dir=recordings_dir,
-        session_id=session_id, chunk=chunk, instrument_id=instrument_id, timestamp=timestamp
-    )
-    # extract_midi_implementation(input_bytes, temp_dir='./temps')
-
-
-def extract_midi_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps'):
-    """Transkun-based MIDI extraction implementation (currently unused).
+    The timestamp is placed first so that alphabetically sorting the
+    pending-audio directory yields strict chronological (FIFO) order across
+    all sessions, which is what the transcription worker relies on to drain
+    the queue in the order chunks were recorded. The recording device index
+    (not instrument_id, which is irrelevant to recording/transcription and
+    is constant for the client process anyway) is included for traceability.
 
     Args:
-        input_bytes (bytes): Raw audio bytes from PyAudio (paInt16 format).
-        bp_model (Model): Unused; kept for signature compatibility.
-        noise_quartiles (tuple): Unused; kept for signature compatibility.
-        signal_quartiles (tuple): Unused; kept for signature compatibility.
-        temp_dir (str): Directory for temporary files. Defaults to './temps'.
+        session_id (str): Session identifier the chunk belongs to.
+        chunk (int): Index of this chunk within the session.
+        device_index (int): Index of the recording device used.
+        timestamp (datetime.datetime): Time the chunk was recorded.
 
     Returns:
-        dict: Contains 'ticks_per_beat', 'messages', and 'is_empty' (always False).
+        str: A filename of the form '{timestamp}_{device_index}_{session_id}_{chunk}.wav'.
     """
-    temp_id = generate_id()
-    unique_temp_dir = f'{temp_dir}/{temp_id}'
-    os.makedirs(unique_temp_dir, exist_ok=True)
+    ts = timestamp.strftime(PENDING_AUDIO_TIMESTAMP_FORMAT)
+    return f'{ts}_{device_index}_{session_id}_{chunk:06d}.wav'
 
-    input_data = np.frombuffer(input_bytes, dtype=np.int16).astype(np.float64) # assumes PyAudio dtype is pyaudio.paInt16
-    wave_filename = f'{unique_temp_dir}/{temp_id}.wav'
-    mid_filename = f'{unique_temp_dir}/{temp_id}.mid'
-    write_wav(input_data=input_data, filename=wave_filename)
-    tk_subprocess(wave_filename, mid_filename)
+def parse_pending_audio_filename(filename):
+    """Recovers chunk metadata encoded in a pending-audio filename.
 
-    serialized_msgs, tpb = serialize_midi_file(midi_filename=mid_filename)
-    midi_info = {
-        'ticks_per_beat': tpb,
-        'messages': serialized_msgs,
-        'is_empty': False
+    Args:
+        filename (str): A filename produced by make_pending_audio_filename
+            (basename only; directory components are ignored).
+
+    Returns:
+        dict: Keys 'timestamp' (datetime.datetime), 'device_index' (str),
+            'session_id' (str), and 'chunk' (int).
+    """
+    stem = Path(filename).stem
+    ts_str, device_index, session_id, chunk_str = stem.split('_')
+    return {
+        'timestamp': datetime.datetime.strptime(ts_str, PENDING_AUDIO_TIMESTAMP_FORMAT),
+        'device_index': device_index,
+        'session_id': session_id,
+        'chunk': int(chunk_str),
     }
 
-    try:
-        shutil.rmtree(unique_temp_dir)
-    except FileNotFoundError:
-        # print(f'{unique_temp_dir} already deleted')
-        pass
+def save_pending_audio(input_data, noise_quartiles, signal_quartiles, pending_dir, session_id, chunk, device_index, timestamp):
+    """Denoises a raw audio chunk and enqueues it as a WAV file for transcription.
 
-    return midi_info
-
-def extract_midi_old_implementation(input_bytes, bp_model, noise_quartiles, signal_quartiles, temp_dir='./temps', research_mode=False, recordings_dir='./recordings', session_id=None, chunk=None, instrument_id=None, timestamp=None):
-    """Denoises a raw audio chunk, transcribes it to MIDI, and cleans up scratch files.
-
-    The chunk is written to a per-call scratch directory under temp_dir, run
-    through Basic Pitch to produce a MIDI file, and serialized for transmission.
-    The scratch directory (audio + MIDI) is removed afterwards regardless of
-    research_mode. If research_mode is True, the preprocessed WAV is first
-    copied to recordings_dir via save_recording so it remains available after
-    the scratch directory is deleted.
+    This is the producer side of the pending-audio queue: every recorded
+    chunk is written here unconditionally, regardless of research mode. A
+    separate transcription worker dequeues and processes these files.
 
     Args:
-        input_bytes (bytes): Raw PCM audio (int16) for one chunk.
+        input_data (np.ndarray): 1D float64 audio samples for one chunk.
+        noise_quartiles (tuple): (25th, 50th, 75th) RMS percentiles from noise calibration.
+        signal_quartiles (tuple): (25th, 50th, 75th) RMS percentiles from signal calibration.
+        pending_dir (str): Directory backing the pending-audio queue.
+        session_id (str): Current session identifier.
+        chunk (int): Index of this chunk within the session.
+        device_index (int): Index of the recording device used.
+        timestamp (datetime.datetime): Time the chunk was recorded.
+
+    Returns:
+        str: Path to the written WAV file.
+    """
+    os.makedirs(pending_dir, exist_ok=True)
+    preprocessed_audio = preprocess_audio(input_data=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
+    filename = make_pending_audio_filename(session_id=session_id, chunk=chunk, device_index=device_index, timestamp=timestamp)
+    path = os.path.join(pending_dir, filename)
+    write_wav(input_data=preprocessed_audio, filename=path)
+    return path
+
+def transcribe_pending_audio(wav_path, bp_model, transcription_dir, research_mode=False, finished_audio_dir='./finished-audio'):
+    """Transcribes one queued WAV file to MIDI and dequeues it.
+
+    This is the consumer side of the pending-audio queue. The MIDI output is
+    written to transcription_dir under the same base name as the WAV file.
+    The WAV file is always removed from the queue: in research mode it is
+    moved to finished_audio_dir for later inspection, otherwise it is deleted.
+
+    Args:
+        wav_path (str): Path to the queued WAV file (in the pending-audio dir).
         bp_model: Loaded Basic Pitch model used for transcription.
-        noise_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for noise.
-        signal_quartiles (tuple): (25th, 50th, 75th) percentile RMS values for signal.
-        temp_dir (str): Base directory for scratch files. Defaults to './temps'.
-        research_mode (bool): If True, preserve this chunk's audio in
-            recordings_dir before the scratch directory is removed. Defaults
-            to False.
-        recordings_dir (str): Directory where preserved recordings are written
-            when research_mode is True. Defaults to './recordings'.
-        session_id (str, optional): Current session identifier, used to name
-            the preserved recording.
-        chunk (int, optional): Index of this chunk within the session, used to
-            name the preserved recording.
+        transcription_dir (str): Directory where the output MIDI is written.
+        research_mode (bool): If True, preserve the WAV in finished_audio_dir
+            instead of deleting it. Defaults to False.
+        finished_audio_dir (str): Directory where preserved WAVs are moved
+            when research_mode is True. Defaults to './finished-audio'.
 
     Returns:
         dict: MIDI info with keys 'ticks_per_beat', 'messages', and 'is_empty'.
     """
-    temp_id = generate_id()
-    unique_temp_dir = f'{temp_dir}/{temp_id}'
-    os.makedirs(unique_temp_dir, exist_ok=True)
+    os.makedirs(transcription_dir, exist_ok=True)
+    filename = os.path.basename(wav_path)
+    stem = Path(filename).stem
 
-    # Handle data preprocessing
-    input_data = np.frombuffer(input_bytes, dtype=np.int16).astype(np.float64) # assumes PyAudio dtype is pyaudio.paInt16
-    preprocessed_audio = preprocess_audio(input_data=input_data, noise_quartiles=noise_quartiles, signal_quartiles=signal_quartiles)
+    bp_out_path = convert_to_midi_bp(input_audio=wav_path, output_dir=transcription_dir, bp_model=bp_model)
+    mid_path = os.path.join(transcription_dir, f'{stem}.mid')
+    os.replace(bp_out_path, mid_path)
 
-    wav_filename = f'{unique_temp_dir}/{temp_id}.wav'
-    write_wav(input_data=preprocessed_audio, filename=wav_filename)
-    mid_filename = convert_to_midi_bp(input_audio=wav_filename, output_dir=unique_temp_dir, bp_model=bp_model)
-    empty = midi_is_empty(midi_filename=mid_filename)
+    empty = midi_is_empty(midi_filename=mid_path)
+    serialized_msgs, tpb = serialize_midi_file(midi_filename=mid_path)
 
-    serialized_msgs, tpb = serialize_midi_file(midi_filename=mid_filename)
-    midi_info = {
+    if research_mode:
+        os.makedirs(finished_audio_dir, exist_ok=True)
+        shutil.move(wav_path, os.path.join(finished_audio_dir, filename))
+    else:
+        os.remove(wav_path)
+
+    return {
         'ticks_per_beat': tpb,
         'messages': serialized_msgs,
         'is_empty': empty
     }
-
-    if research_mode:
-        os.makedirs(recordings_dir, exist_ok=True)
-        ts = timestamp.strftime('%Y-%m-%d_%H-%M-%S') if timestamp is not None else 'unknown'
-        dest_name = f'{instrument_id}_{ts}_{chunk:04d}.wav' if (instrument_id is not None and chunk is not None) else os.path.basename(wav_filename)
-        shutil.copy2(wav_filename, os.path.join(recordings_dir, dest_name))
-
-    try:
-        shutil.rmtree(unique_temp_dir)
-    except FileNotFoundError:
-        # print(f'{unique_temp_dir} already deleted')
-        pass
-
-    # for filename in (wav_filename, mid_filename):
-    #     try:
-    #         os.remove(filename)
-    #     except FileNotFoundError:
-    #         print(f'{filename} already deleted')
-
-    return midi_info
 
 def serialize_midi_object(midi_object):
     """Serializes a MidiFile to a JSON-compatible list of messages and ticks_per_beat.
