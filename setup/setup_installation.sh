@@ -10,6 +10,11 @@ export CLIENT_USERNAME="eric"
 export USER_DIRECTORY="/home/$CLIENT_USERNAME"
 export OCTAVIO_PROJECT_PATH="$USER_DIRECTORY/octavio"
 
+PYENV_ROOT="$USER_DIRECTORY/.pyenv"
+export PYENV_ROOT
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
+
 # Establish device information
 
 echo "What is the unique device number?"
