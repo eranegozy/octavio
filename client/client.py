@@ -197,7 +197,7 @@ class OctavioClient:
         warmup_frames = np.zeros(self.sampling_rate)
         warmup_filename = f'{self.temp_dir}/warmup.wav'
         utils.write_wav(warmup_frames, warmup_filename)
-        warmup_midi = utils.convert_to_midi_bp(input_audio=warmup_filename, output_dir=self.temp_dir, bp_model=self.bp_model)
+        warmup_midi = utils.convert_to_midi_tk(input_audio=warmup_filename, output_dir=self.temp_dir, bp_model=self.bp_model)
         os.remove(warmup_midi)
 
         logger.info("AMT model successfully warmed up")
@@ -432,7 +432,7 @@ class OctavioClient:
         metadata = utils.parse_pending_audio_filename(os.path.basename(wav_path))
         logger.info(f"Transcribing chunk {metadata['chunk']} of session {metadata['session_id']}")
 
-        midi_info = utils.transcribe_pending_audio(
+        midi_info = utils.transcribe_pending_audio_tk(
             wav_path=wav_path,
             bp_model=self.bp_model,
             transcription_dir=self.transcription_dir,
