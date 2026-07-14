@@ -32,7 +32,9 @@ import scipy.io
 import calibrate
 
 import subprocess
-# import transkun.transcribe as tk  # unused; transkun not installed in client venv
+# Transkun is invoked as a subprocess (see convert_to_midi_tk) rather than
+# imported directly, since it's a separate torch-based package that is not
+# part of the client's default requirements.
 
 def generate_id():
     """Generates a random 10-character alphanumeric ID.
@@ -110,6 +112,51 @@ def convert_to_midi_bp(input_audio, output_dir, bp_model):
     # target_path = f'{str(Path(input_audio).with_suffix(""))}.mid'
     # os.rename(bp_out_path, target_path)
     return bp_out_path
+
+def convert_to_midi_tk(input_audio, output_dir, device='cpu'):
+    """Runs Transkun AMT on a WAV file and returns the output MIDI path.
+
+    Mirrors convert_to_midi_bp's contract (same args shape, same return
+    type) so the two backends are interchangeable at call sites. Unlike
+    Basic Pitch, Transkun is invoked as a subprocess via `python3.10 -m
+    transkun.transcribe` rather than an in-process model call, since it's a
+    separate, torch-based package that is not part of the client's default
+    requirements (see CLAUDE.md / utils.py import comment).
+
+    Args:
+        input_audio (str): Path to the input WAV file.
+        output_dir (str): Directory where the output MIDI is written.
+        device (str): Compute device passed to transkun ('cpu' or 'cuda').
+            Defaults to 'cpu'.
+
+    Returns:
+        str: Path to the generated MIDI file.
+
+    Raises:
+        RuntimeError: If the transkun subprocess exits non-zero, e.g.
+            because the `transkun` package isn't installed in whatever
+            `python3.10` resolves to on PATH.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    tk_out_path = os.path.join(output_dir, f'{Path(input_audio).stem}_transkun.mid')
+
+    result = subprocess.run(
+        [
+            "python3.10", "-m", "transkun.transcribe",
+            input_audio, tk_out_path,
+            "--device", device,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"transkun transcription failed on {input_audio} "
+            f"(exit {result.returncode}): {result.stderr.strip()}"
+        )
+
+    return tk_out_path
 
 def display_midi(midi_filename):
     """Loads a MIDI file for inspection. Currently a no-op placeholder.
@@ -364,6 +411,51 @@ def transcribe_pending_audio(wav_path, bp_model, transcription_dir, research_mod
         'is_empty': empty
     }
 
+def transcribe_pending_audio_tk(wav_path, transcription_dir, research_mode=False, finished_audio_dir='./finished-audio', device='cpu'):
+    """Transcribes one queued WAV file to MIDI using Transkun, and dequeues it.
+
+    Transkun counterpart to transcribe_pending_audio: identical signature
+    (minus bp_model, plus device) and identical return format, so the two
+    AMT backends can be swapped at call sites without touching downstream
+    code (serialization, chunk merging, server API all stay the same).
+    Requires the `transkun` package to be installed in whatever `python3.10`
+    is on PATH — it is not part of the client's default requirements.
+
+    Args:
+        wav_path (str): Path to the queued WAV file (in the pending-audio dir).
+        transcription_dir (str): Directory where the output MIDI is written.
+        research_mode (bool): If True, preserve the WAV in finished_audio_dir
+            instead of deleting it. Defaults to False.
+        finished_audio_dir (str): Directory where preserved WAVs are moved
+            when research_mode is True. Defaults to './finished-audio'.
+        device (str): Compute device passed to transkun. Defaults to 'cpu'.
+
+    Returns:
+        dict: MIDI info with keys 'ticks_per_beat', 'messages', and 'is_empty'.
+    """
+    os.makedirs(transcription_dir, exist_ok=True)
+    filename = os.path.basename(wav_path)
+    stem = Path(filename).stem
+
+    tk_out_path = convert_to_midi_tk(input_audio=wav_path, output_dir=transcription_dir, device=device)
+    mid_path = os.path.join(transcription_dir, f'{stem}.mid')
+    os.replace(tk_out_path, mid_path)
+
+    empty = midi_is_empty(midi_filename=mid_path)
+    serialized_msgs, tpb = serialize_midi_file(midi_filename=mid_path)
+
+    if research_mode:
+        os.makedirs(finished_audio_dir, exist_ok=True)
+        shutil.move(wav_path, os.path.join(finished_audio_dir, filename))
+    else:
+        os.remove(wav_path)
+
+    return {
+        'ticks_per_beat': tpb,
+        'messages': serialized_msgs,
+        'is_empty': empty
+    }
+
 def serialize_midi_object(midi_object):
     """Serializes a MidiFile to a JSON-compatible list of messages and ticks_per_beat.
 
@@ -465,17 +557,6 @@ def is_silent(input_bytes, window_length = 2048, threshold = 0.001):
     windows = data.reshape(-1, window_length)
     energy = np.mean(windows ** 2, axis=1)
     return np.all(energy < threshold)
-
-def tk_subprocess(input_fname, output_fname):
-    """Runs Transkun transcription as a subprocess using python3.10.
-
-    Args:
-        input_fname (str): Path to the input WAV file.
-        output_fname (str): Path to write the output MIDI file.
-    """
-    subprocess.run([
-        "python3.10", "-m", "transkun.transcribe", input_fname, output_fname
-    ])
 
 if __name__ == '__main__':
     pass
