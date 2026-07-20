@@ -63,7 +63,7 @@ function App() {
     <>
       <h1>Octavio Website</h1>
       <h2>Online Instruments: {online_instruments}</h2>
-      <h2>{date.toISOString()}</h2>
+      <h2>{date.toDateString()}, {date.toTimeString()}</h2>
       <div className="logs">
         <DatePicker showIcon selected={date} onChange={(date) => {
           setDate(date);
