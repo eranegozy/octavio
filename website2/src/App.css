@@ -50,6 +50,7 @@
 }
 
 .session-ids {
+  color: black;
   background-color: aliceblue;
   outline-color: black;
   outline-style: solid;
@@ -60,4 +61,13 @@
 .log-body {
   line-break: break-word;
   background-color: aliceblue;
+}
+
+.last-sessions {
+  color: black;
+  background-color: aliceblue;
+  outline-color: black;
+  outline-style: solid;
+  outline-width: thin;
+  padding: 0.5rem;
 }
