@@ -3,24 +3,13 @@ import DatePicker from "react-datepicker"
 import 'react-datepicker/dist/react-datepicker.css'
 import './App.css'
 
-const online_instruments_url = "http://octavio-server.mit.edu:5001/api/online_instruments"
-const log_url = "http://octavio-server.mit.edu:5001/api/logs"
-const test_url = "http://octavio-server.mit.edu:5001/"
+import InstrumentInfo from './InstrumentInfo.jsx'
 
-// async function fetchOnlineInstruments() {
-//   const response = await fetch(online_instruments_url)
-//   return response.text()
-// }
+const SERVER_URL = "http://octavio-server.mit.edu:5001"
+const instrument_data_url = `${SERVER_URL}/api/instrument`
+const online_instruments_url = `${SERVER_URL}/api/online_instruments`
+const log_url = `${SERVER_URL}/api/logs`
 
-// async function fetchLog(date) {
-//   const params = {
-//     date: date.toISOString().split('T')[0]
-//   };
-//   const url = new URL(log_url);
-//   Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
-//   const response = await fetch(url)
-//   return response.text()
-// }
 
 function App() {
   const [online_instruments, setOnlineInstruments] = useState([])
