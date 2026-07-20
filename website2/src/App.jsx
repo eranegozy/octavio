@@ -74,6 +74,10 @@ function App() {
           <div className="session-ids">{'Sessions: {\n' + Array.from(session_ids).map(([key, value]) => String(key) + ': [' + value.join(', ') + ']').join('\n') + '\n}'}</div>
           <div className="log-body">{log_info}</div>
         </details>
+
+        <details>
+          <div className="last-sessions">{'Sessions: \n' + latest_sessions}</div>
+        </details>
       </div>
     </>
   )
