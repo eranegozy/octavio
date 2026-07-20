@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import DatePicker from "react-datepicker"
+import Select from 'react-select'
 import 'react-datepicker/dist/react-datepicker.css'
 import './App.css'
 
-import InstrumentInfo from './InstrumentInfo.jsx'
+import InstrumentSelector from './InstrumentSelector.jsx'
 
 const SERVER_URL = "http://octavio-server.mit.edu:5001"
 const instrument_data_url = `${SERVER_URL}/api/instrument`
@@ -13,6 +14,8 @@ const log_url = `${SERVER_URL}/api/logs`
 
 function App() {
   const [online_instruments, setOnlineInstruments] = useState([])
+  const [instrument_choices, setInstrumentChoices] = useState([])
+  const [latest_sessions, setLatestSessions] = useState([])
   const [date, setDate] = useState(new Date())
   const [session_ids, setSessionIds] = useState(new Map())
   const [log_info, setLogInfo] = useState("")
@@ -20,6 +23,24 @@ function App() {
   async function fetchOnlineInstruments() {
     const response = await fetch(online_instruments_url)
     setOnlineInstruments(await response.text())
+  }
+
+  async function fetchInstrumentChoices() {
+    const response = await fetch(online_instruments_url)
+    const response_json = await response.json()
+
+    const formattedOptions = response_json.map(item => ({
+      value: item.id || item, 
+      label: item.name || item
+    }));
+
+    setInstrumentChoices(formattedOptions);
+  }
+  
+  async function fetchLatestSessions(id) {
+    const response = await fetch(`${instrument_data_url}?instrument_id=${id}`);
+    const response_text = await response.text();
+    setLatestSessions(response_text);
   }
 
   async function fetchLog(date) {
@@ -39,17 +60,14 @@ function App() {
         (item) => item['session_id']
       )
     )]]));
-    // const new_session_ids = new Set(response_json.filter(
-    //   (item) => item['operation'] === 'ADD_CHUNK'
-    // ).map(
-    //   (item) => [item['instrument_id'], item['session_id']]
-    // ));
     setLogInfo(response_text);
     setSessionIds(new_session_ids);
   }
 
   function init() {
     fetchOnlineInstruments();
+    fetchInstrumentChoices();
+    fetchLatestSessions('10');
     fetchLog();
   }
 
@@ -79,6 +97,8 @@ function App() {
           <div className="last-sessions">{'Sessions: \n' + latest_sessions}</div>
         </details>
       </div>
+      <selector/>
+      <InstrumentSelector all_instruments={instrument_choices}/>
     </>
   )
 }
