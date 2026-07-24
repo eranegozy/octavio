@@ -7,7 +7,7 @@ import NotFound from './NotFound.jsx'
 import InstrumentInfo from './InstrumentInfo.jsx'
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
+  // <StrictMode>
     <BrowserRouter>
       <Routes>
         <Route index element={<App />} />
@@ -15,5 +15,5 @@ createRoot(document.getElementById('root')).render(
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
-  </StrictMode>,
+  // </StrictMode>,
 )

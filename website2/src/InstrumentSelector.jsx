@@ -3,12 +3,16 @@ import Select from 'react-select';
 
 const SERVER_URL = "http://octavio-server.mit.edu:5001"
 const instrument_data_url = `${SERVER_URL}/api/instrument`
+const MIDI_URL = `${SERVER_URL}/api/midi`
+import MidiDisplay from './MidiDisplay.jsx'
 
 const InstrumentSelector = ({ all_instruments }) => {
   const [selectedInstrument, setSelectedInstrument] = useState(null);
   
   const [sessionOptions, setSessionOptions] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
+
+  const [showMIDI, setShowMidi] = useState(false)
 
   async function fetchLatestSessions(id) {
     try {
@@ -30,6 +34,7 @@ const InstrumentSelector = ({ all_instruments }) => {
     setSelectedInstrument(instrumentOption);
     setSelectedSession(null); // Clear previous session choice
     setSessionOptions([]);
+    setShowMidi(false);
 
     if (instrumentOption) {
       fetchLatestSessions(instrumentOption.value);
@@ -38,6 +43,16 @@ const InstrumentSelector = ({ all_instruments }) => {
 
   const handleSessionChange = (sessionOption) => {
     setSelectedSession(sessionOption);
+    setShowMidi(false);
+  };
+
+  const handleClick = () => {
+    const chosenInstrument = selectedInstrument
+    const chosenSession = selectedSession
+    // console.log(`${selectedInstrument.value}, ${selectedSession.value}`)
+    if (chosenInstrument === null || chosenSession === null)
+      return alert(`Could not retrieve session MIDI. Please select ${(chosenInstrument === null) ? 'an instrument' : 'a session'}.`)
+    setShowMidi(true);
   };
 
   return (
@@ -63,7 +78,8 @@ const InstrumentSelector = ({ all_instruments }) => {
           isClearable
         />
       </div>
-
+    <button onClick={() => handleClick()}>Go</button>
+    {showMIDI && <MidiDisplay midiUrl={`${MIDI_URL}?instrument_id=${selectedInstrument.value}&session_id=${selectedSession.value}`}/>}
     </div>
   );
 };

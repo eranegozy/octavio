@@ -44,6 +44,7 @@ function InstrumentInfo() {
         const response = await fetch(url);
         const response_file = await response.blob();
         const response_url = URL.createObjectURL(response_file);
+        console.log(url);
         setMidi(response_url);
     }
 
