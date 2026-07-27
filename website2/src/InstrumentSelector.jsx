@@ -6,6 +6,13 @@ const instrument_data_url = `${SERVER_URL}/api/instrument`
 const MIDI_URL = `${SERVER_URL}/api/midi`
 import MidiDisplay from './MidiDisplay.jsx'
 
+const dropdownStyle = {
+  option: provided => ({
+    ...provided,
+    color: 'black'
+  }),
+}
+
 const InstrumentSelector = ({ all_instruments }) => {
   const [selectedInstrument, setSelectedInstrument] = useState(null);
   
@@ -62,6 +69,7 @@ const InstrumentSelector = ({ all_instruments }) => {
         <label>Select Instrument:</label>
         <Select
           value={selectedInstrument}
+          styles={dropdownStyle}
           onChange={handleInstrumentChange}
           options={all_instruments}
           isClearable
@@ -72,6 +80,7 @@ const InstrumentSelector = ({ all_instruments }) => {
         <label>Select Session:</label>
         <Select
           value={selectedSession}
+          styles={dropdownStyle}
           onChange={handleSessionChange}
           options={sessionOptions} // Pass the fetched state array here
           isDisabled={!selectedInstrument} // Disable until instrument is chosen

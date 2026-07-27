@@ -97,7 +97,6 @@ function App() {
           <div className="last-sessions">{'Sessions: \n' + latest_sessions}</div>
         </details>
       </div>
-      <selector/>
       <InstrumentSelector all_instruments={instrument_choices}/>
     </>
   )
