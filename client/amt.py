@@ -9,6 +9,8 @@ def get_amt_model(model_type: str) -> "AMTModel":
     if model_type == "basic_pitch":
         from amt_basic_pitch import BasicPitchAMT
         return BasicPitchAMT()
-    if model_type == "transkun":
+    elif model_type == "transkun":
         from amt_transkun import TranskunAMT
         return TranskunAMT()
+    else:
+        raise ValueError(f"Model type {model_type} not recognized")

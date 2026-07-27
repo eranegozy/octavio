@@ -53,6 +53,7 @@ config = {
     'DO_HEARTBEAT': True,
     'RESEARCH_MODE': False,
     'SERVER_URL': None,
+    'RECORDING_MODE': 'continuous',
 }
 if os.path.isfile("./.env"):
     logger.info("Loading environment variables from .env")
@@ -64,6 +65,13 @@ for k, v in config.items():
         config[k] = True
     elif str(v).strip().lower() == 'false':
         config[k] = False
+
+# RECORDING_MODE: 'continuous' (always listening, button toggles privacy pause)
+# or 'button' (idle until button press, then records exactly one chunk_secs window)
+config['RECORDING_MODE'] = str(config.get('RECORDING_MODE', 'continuous')).strip().lower()
+if config['RECORDING_MODE'] not in ('continuous', 'button'):
+    logger.info(f"Unrecognized RECORDING_MODE '{config['RECORDING_MODE']}', defaulting to 'continuous'")
+    config['RECORDING_MODE'] = 'continuous'
 
 class OctavioClient:
     """Orchestrates audio capture, on-device MIDI extraction, and server transmission.
@@ -90,11 +98,13 @@ class OctavioClient:
     default_noise_mean = 4.14
     default_noise_std = 2.26
     default_signal_quartiles = (9.70, 34.39, 91.24)
-    default_signal_mean = 73.102
+    default_signal_mean = 73.10
     default_signal_std = 125.83
 
     temp_dir = './temps'
-    recordings_dir = './recordings'
+    pending_audio_dir = './pending-audio'
+    transcription_dir = './transcription'
+    finished_audio_dir = './finished-audio'
 
     server_url = config['SERVER_URL']
     midi_endpoint_url = '/piano'
@@ -102,28 +112,35 @@ class OctavioClient:
     midi_request_url = f'{server_url}{midi_endpoint_url}'
     heartbeat_request_url = f'{server_url}{heartbeat_endpoint_url}'
 
-    with log_utils.no_stderr():
-        audio = pyaudio.PyAudio()
-
-    _tflite_path = build_icassp_2022_model_path(FilenameSuffix.tflite)
-    bp_model = Model(_tflite_path)
-
     def __init__(self):
         """Loads config from infra.json, initializes hardware, and warms up the AMT model."""
+
+        # Initialize hardware
+
         self.hardware = OctavioHardware()
         self.hardware.shine_green()
         signal.signal(signal.SIGTERM, lambda signum, frame: self.on_shutdown())
         signal.signal(signal.SIGINT, lambda signum, frame: self.on_shutdown())
 
+        # Start session
+
         self.privacy_last_requested = None
+        self.recording_window_start = None
         self.last_hardware_interaction = time.time()
-        self.is_recording = True
+        self.is_recording = config['RECORDING_MODE'] != 'button'
         self.stream = None
 
         self.session = utils.generate_id()
         self.chunks_sent = 0
         self.silence = 0
         self.end_stream_flag = False
+
+        # Load PyAudio
+        
+        with log_utils.no_stderr():
+            self.audio = pyaudio.PyAudio()
+
+        # Load infra.json values
 
         with open('./infra.json', 'r') as f:
             self.infra = json.load(f)
@@ -162,16 +179,25 @@ class OctavioClient:
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
 
+        os.makedirs(self.pending_audio_dir, exist_ok=True)
+        os.makedirs(self.transcription_dir, exist_ok=True)
+
         if config.get('RESEARCH_MODE', False):
-            logger.info(f"Research mode enabled, recordings will be preserved in {self.recordings_dir}")
-            os.makedirs(self.recordings_dir, exist_ok=True)
+            logger.info(f"Research mode enabled, finished recordings will be preserved in {self.finished_audio_dir}")
+            os.makedirs(self.finished_audio_dir, exist_ok=True)
+
+
+        # Initializing model
+
+        _tflite_path = build_icassp_2022_model_path(FilenameSuffix.tflite)
+        self.bp_model = Model(_tflite_path)
 
         logger.info("AMT model attempting to warm up")
 
         warmup_frames = np.zeros(self.sampling_rate)
         warmup_filename = f'{self.temp_dir}/warmup.wav'
-        utils.save_frames_to_file(warmup_frames, warmup_filename)
-        warmup_midi = utils.convert_to_midi_bp(input_audio=warmup_filename, output_dir=self.temp_dir, bp_model=self.bp_model)
+        utils.write_wav(warmup_frames, warmup_filename)
+        warmup_midi = utils.convert_to_midi_tk(input_audio=warmup_filename, output_dir=self.temp_dir, bp_model=self.bp_model)
         os.remove(warmup_midi)
 
         logger.info("AMT model successfully warmed up")
@@ -187,6 +213,9 @@ class OctavioClient:
         # heartbeat
         self.heartbeat_thread = threading.Thread(target = self.heartbeat, daemon=True)
         self.exit_flag = threading.Event()
+
+        # transcription worker (drains the pending-audio queue on its own thread)
+        self.transcription_thread = threading.Thread(target = self.transcription_worker, daemon=True)
 
     def on_shutdown(self):
         """SIGTERM/SIGINT handler. Deactivates LEDs, signals threads, and exits."""
@@ -215,8 +244,8 @@ class OctavioClient:
     def update_session(self, current_time):
         """Checks end-of-session conditions and handles button presses.
 
-        Sets end_stream_flag if the silence threshold or session cap is reached.
-        Toggles privacy mode on/off when the button is pressed with debounce.
+        Sets end_stream_flag if the silence threshold or session cap is reached,
+        then delegates button/mode logic to the appropriate method.
 
         Args:
             current_time (float): Current time.time() value.
@@ -227,14 +256,23 @@ class OctavioClient:
             (session_duration >= self.session_cap_minutes)
         ):
             self.end_stream_flag = True
-        elif (self.hardware.button_pressed and
+            return
+
+        if config['RECORDING_MODE'] == 'button':
+            self._update_session_button_mode(current_time)
+        else:
+            self._update_session_continuous_mode(current_time)
+
+    def _update_session_continuous_mode(self, current_time):
+        """Button toggles privacy pause (existing behavior)."""
+        if (self.hardware.button_pressed and
               self.is_recording and
               current_time - self.last_hardware_interaction >= self.hardware_interaction_wait_seconds
         ):
             self.privacy_last_requested = current_time
             self.last_hardware_interaction = current_time
             self.end_stream_flag = True
-            logger.info(f"User requested privacy")
+            logger.info("User requested privacy")
         elif (
             self.hardware.button_pressed and
             not self.is_recording and
@@ -242,17 +280,35 @@ class OctavioClient:
         ):
             self.privacy_last_requested = None
             self.last_hardware_interaction = current_time
-            logger.info(f"User de-requested privacy")
+            logger.info("User de-requested privacy")
+
+    def _update_session_button_mode(self, current_time):
+        """Button press opens a single chunk_secs recording window; ignored while recording."""
+        if self.recording_window_start is not None:
+            if current_time - self.recording_window_start >= self.chunk_secs:
+                self.recording_window_start = None
+                self.is_recording = False
+                self.end_stream_flag = True
+                logger.info("Button-triggered recording window complete")
+        elif (
+            self.hardware.button_pressed and
+            current_time - self.last_hardware_interaction >= self.hardware_interaction_wait_seconds
+        ):
+            self.last_hardware_interaction = current_time
+            self.recording_window_start = current_time
+            self.is_recording = True
+            logger.info("User triggered a recording window")
 
     def refresh_client_state(self):
         """Updates session state and syncs the LED color to the current recording status."""
         current_time = time.time()
         self.update_session(current_time)
 
-        self.is_recording = (
-            self.privacy_last_requested is None or
-            (current_time - self.privacy_last_requested) / 60 >= self.privacy_minutes
-        )
+        if config['RECORDING_MODE'] != 'button':
+            self.is_recording = (
+                self.privacy_last_requested is None or
+                (current_time - self.privacy_last_requested) / 60 >= self.privacy_minutes
+            )
         self.hardware.shine_green() if self.is_recording else self.hardware.shine_red()
 
     def identify_recording_device(self):
@@ -274,10 +330,11 @@ class OctavioClient:
         return device_index
 
     def record_audio(self):
-        """Opens a PyAudio stream that processes 30-second chunks via mic_callback.
+        """Opens a PyAudio stream that enqueues 30-second chunks via mic_callback.
 
-        Each chunk is silence-checked, MIDI-extracted, and POSTed to the server.
-        On persistent server failure, sets end_stream_flag to trigger a session reset.
+        Each non-silent chunk is denoised and written to the pending-audio
+        queue directory; transcription and server transmission happen later,
+        off this thread, in transcription_worker.
 
         Returns:
             pyaudio.Stream: The active audio input stream.
@@ -286,58 +343,26 @@ class OctavioClient:
             now = datetime.datetime.now()
 
             if utils.is_silent(input_data):
-                logger.info("Audio chunk was silent, skipping MIDI extraction and transmission")
+                logger.info("Audio chunk was silent, skipping recording")
                 self.silence += self.chunk_secs
                 return None, pyaudio.paContinue
-            else:
-                self.silence = 0
-                logger.info("Attempting to extract MIDI")
-                midi_info = utils.extract_midi(
-                    input_bytes=input_data,
-                    bp_model=self.bp_model,
-                    noise_quartiles=self.noise_quartiles,
-                    signal_quartiles=self.signal_quartiles,
-                    temp_dir=self.temp_dir,
-                    research_mode=config.get('RESEARCH_MODE', False),
-                    recordings_dir=self.recordings_dir,
-                    session_id=self.session,
-                    chunk=self.chunks_sent
-                )
-                logger.info("MIDI extracted")
 
-            request_data = {
-                'instrument_id': self.instrument_id,
-                'session_id': self.session,
-                'chunk': self.chunks_sent,
-                'time': now.isoformat(),
-                **midi_info
-            }
-            headers = {
-                'Content-Type': 'application/json'
-            }
+            self.silence = 0
+            input_array = np.frombuffer(input_data, dtype=np.int16).astype(np.float64)
 
-            logger.info(f"Attempting to transmit MIDI for session {self.session}")
-
-            for i in range(self.num_server_attempts):
-                try:
-                    r = requests.post(
-                        self.midi_request_url,
-                        json=request_data,
-                        headers=headers
-                    )
-                except Exception as e:
-                    logger.info(f"Failed attempt {i + 1} to contact server with request, retrying...")
-                    time.sleep(self.server_retry_wait_seconds)
-                else:
-                    logger.info(f"MIDI transmitted successfully for session {self.session}")
-                    self.chunks_sent += 1
-                    return None, pyaudio.paContinue
-
-            logger.info("Failed to contact server with request. Restarting...")
-            time.sleep(self.server_failure_wait_seconds)
-            self.end_stream_flag = True
+            logger.info("Queuing audio chunk for transcription")
+            utils.save_pending_audio(
+                input_data=input_array,
+                noise_quartiles=self.noise_quartiles,
+                signal_quartiles=self.signal_quartiles,
+                pending_dir=self.pending_audio_dir,
+                session_id=self.session,
+                chunk=self.chunks_sent,
+                device_index=self.device_index,
+                timestamp=now
+            )
+            self.chunks_sent += 1
             return None, pyaudio.paContinue
-
 
         chunk_frames = int(math.ceil(self.chunk_secs * self.sampling_rate))
         stream = self.audio.open(
@@ -366,6 +391,107 @@ class OctavioClient:
     def run_heartbeat(self):
         """Starts the heartbeat daemon thread."""
         self.heartbeat_thread.start()
+
+    def run_transcription_worker(self):
+        """Starts the transcription daemon thread."""
+        self.transcription_thread.start()
+
+    def transcription_worker(self):
+        """Drains the pending-audio queue, oldest file first, until the exit flag is set.
+
+        Pending-audio filenames are timestamp-prefixed (see
+        utils.make_pending_audio_filename), so an alphabetical directory
+        listing is equivalent to chronological recording order across all
+        sessions. This keeps recording (mic_callback) decoupled from the
+        comparatively slow AMT transcription step.
+        """
+        logger.info("Transcription worker running")
+        while not self.exit_flag.is_set():
+            pending_files = sorted(
+                f for f in os.listdir(self.pending_audio_dir) if f.endswith('.wav')
+            )
+            if not pending_files:
+                self.exit_flag.wait(timeout=1)
+                continue
+
+            wav_path = os.path.join(self.pending_audio_dir, pending_files[0])
+            try:
+                self.process_pending_audio(wav_path)
+            except Exception as e:
+                logger.info(f"Failed to process {wav_path}: {e}")
+                time.sleep(1)
+
+        logger.info("Transcription worker exiting")
+
+    def process_pending_audio(self, wav_path):
+        """Transcribes one queued WAV file and transmits the resulting MIDI.
+
+        Args:
+            wav_path (str): Path to a WAV file in pending_audio_dir.
+        """
+        metadata = utils.parse_pending_audio_filename(os.path.basename(wav_path))
+        logger.info(f"Transcribing chunk {metadata['chunk']} of session {metadata['session_id']}")
+
+        midi_info = utils.transcribe_pending_audio_tk(
+            wav_path=wav_path,
+            bp_model=self.bp_model,
+            transcription_dir=self.transcription_dir,
+            research_mode=config.get('RESEARCH_MODE', False),
+            finished_audio_dir=self.finished_audio_dir
+        )
+        logger.info(f"MIDI extracted for chunk {metadata['chunk']} of session {metadata['session_id']}")
+
+        self.send_midi_chunk(
+            instrument_id=self.instrument_id,
+            session_id=metadata['session_id'],
+            chunk=metadata['chunk'],
+            time_iso=metadata['timestamp'].isoformat(),
+            midi_info=midi_info
+        )
+
+    def send_midi_chunk(self, instrument_id, session_id, chunk, time_iso, midi_info):
+        """POSTs one transcribed chunk's MIDI to the server, retrying on failure.
+
+        On persistent failure, sets end_stream_flag so the main loop resets
+        the recording session, mirroring the previous synchronous behavior.
+
+        Args:
+            instrument_id: Instrument identifier.
+            session_id (str): Session the chunk belongs to.
+            chunk (int): Index of this chunk within its session.
+            time_iso (str): ISO-formatted recording timestamp.
+            midi_info (dict): Output of utils.transcribe_pending_audio.
+        """
+        request_data = {
+            'instrument_id': instrument_id,
+            'session_id': session_id,
+            'chunk': chunk,
+            'time': time_iso,
+            **midi_info
+        }
+        headers = {
+            'Content-Type': 'application/json'
+        }
+
+        logger.info(f"Attempting to transmit MIDI for session {session_id}")
+
+        for i in range(self.num_server_attempts):
+            try:
+                requests.post(
+                    self.midi_request_url,
+                    json=request_data,
+                    headers=headers
+                )
+            except Exception as e:
+                logger.info(f"Failed attempt {i + 1} to contact server with request, retrying...")
+                time.sleep(self.server_retry_wait_seconds)
+            else:
+                logger.info(f"MIDI transmitted successfully for session {session_id}")
+                return
+
+        logger.info("Failed to contact server with request. Restarting...")
+        time.sleep(self.server_failure_wait_seconds)
+        self.end_stream_flag = True
 
     def heartbeat(self):
         """Sends a POST to /heartbeat every 30 seconds until the exit flag is set."""
@@ -399,4 +525,5 @@ if __name__ == '__main__':
     client = OctavioClient()
     if config['DO_HEARTBEAT']:
         client.run_heartbeat()
+    client.run_transcription_worker()
     client.run()

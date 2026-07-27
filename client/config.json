@@ -1,0 +1,38 @@
+{
+    "DO_RECORDING": true,
+    "RECORDING_SESSION_MODE": "continuous",
+
+    "DO_HEARTBEAT": true,
+
+    "DO_TRANSCRIPTION": true,
+    "KEEP_TRANSCRIBED_AUDIO": false,
+
+    "CHUNK_SECS": 30,
+    "SESSION_CAP_MINUTES": 45,
+    "SILENCE_THRESHOLD": 10,
+    "PRIVACY_MINUTES": 30,
+
+    "NUM_SERVER_ATTEMPTS": 3,
+    "SERVER_RETRY_WAIT_SECONDS": 15,
+    "SERVER_FAILURE_WAIT_SECONDS": 60,
+    "HARDWARE_INTERACTION_WAIT_SECONDS": 1.5,
+
+    "RED_PIN": 25,
+    "GREEN_PIN": 24,
+    "BUTTON_PIN": 20,
+
+    "AMT_MODEL": "basic_pitch",
+    "AMT_PARAMS": {
+        "basic_pitch": {
+            "min_frequency": 27.5,
+            "max_frequency": 4186,
+            "onset_threshold": 0.7,
+            "frame_threshold": 0.3
+        },
+        "transkun": {
+            "device": "cpu",
+            "weight_path": null,
+            "conf_path": null
+        }
+    }
+}
