@@ -4,7 +4,7 @@
 
     "DO_HEARTBEAT": true,
 
-    "DO_TRANSCRIPTION": true,
+    "DO_TRANSCRIPTION": false,
     "KEEP_TRANSCRIBED_AUDIO": false,
 
     "CHUNK_SECS": 30,

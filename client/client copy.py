@@ -11,7 +11,7 @@ Note: documentation in this file was written with assistance from AI tools.
 import os
 import sys
 
-from amt import AMTModel, get_amt_model
+# from amt import AMTModel, get_amt_model
 
 import logging
 import threading
@@ -34,7 +34,7 @@ DEFAULTS = {
 
 config = DEFAULTS.copy()
 try:
-    with open("config.json", "r") as file:
+    with open("client/config.json", "r") as file:
         data = json.load(file)
         config.update(data)
 except FileNotFoundError:
@@ -106,7 +106,7 @@ class OctavioClient:
             logging.info("Started heartbeat")
 
         if self.do_transcription:
-            self.Model = get_amt_model(self.amt_model)
+            # self.Model = get_amt_model(self.amt_model)
             self.transcription_thread = threading.Thread(target = self.run_transcription, daemon=False) # Must finish before program exit, no partial transcriptions
             self.transcription_thread.start()
             logging.info("Started transcription")
@@ -120,10 +120,10 @@ class OctavioClient:
             self.recording_thread.start()
             logging.info("Started recording")
         
-
     def run_heartbeat(self):
-        raise NotImplementedError
-
+        while(True):
+            print("Badum tssss")
+            time.sleep(3)
 
     def run_transcription(self):
         raise NotImplementedError
@@ -132,15 +132,20 @@ class OctavioClient:
         raise NotImplementedError
     
     def run_recording(self):
-        raise NotImplementedError
-        
-
-    
-
-
-        
+        while(True):
+            print("I'm recording")
+            time.sleep(30)
 
 
 if __name__ == '__main__':
-    client = OctavioClient()
+    print(config)
+    client = OctavioClient(
+        do_recording=config["DO_RECORDING"],
+        recording_session_mode=config["RECORDING_SESSION_MODE"],
+        do_heartbeat=config["DO_HEARTBEAT"],
+        do_transcription=config["DO_TRANSCRIPTION"],
+        amt_model=config["AMT_MODEL"],
+        keep_transcribed_audio=config["KEEP_TRANSCRIBED_AUDIO"],
+        server_url=config["SERVER_URL"]
+    )
     client.start()
