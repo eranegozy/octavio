@@ -4,8 +4,8 @@
 
     "DO_HEARTBEAT": true,
 
-    "DO_TRANSCRIPTION": false,
-    "KEEP_TRANSCRIBED_AUDIO": false,
+    "DO_TRANSCRIPTION": true,
+    "KEEP_TRANSCRIBED_AUDIO": true,
 
     "CHUNK_SECS": 30,
     "SESSION_CAP_MINUTES": 45,

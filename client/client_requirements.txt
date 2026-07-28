@@ -29,7 +29,8 @@ Jinja2==3.1.6
 joblib==1.4.2
 keras==2.15.0
 lazy_loader==0.4
-lgpio==0.2.2.0
+# unused, temp disable
+# lgpio==0.2.2.0
 libclang==18.1.1
 librosa==0.11.0
 llvmlite==0.44.0
@@ -69,7 +70,8 @@ soxr==0.5.0.post1
 sympy==1.13.3
 termcolor==2.5.0
 tflite==2.18.0
-tflite-runtime==2.14.0
+# unused. temp disable
+# tflite-runtime==2.14.0
 threadpoolctl==3.5.0
 tqdm==4.67.1
 typing_extensions==4.12.2

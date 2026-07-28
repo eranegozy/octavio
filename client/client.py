@@ -22,28 +22,6 @@ import datetime
 import requests
 import asyncio
 
-# Import configs
-DEFAULTS = {
-    "DO_RECORDING": True,
-    "RECORDING_SESSION_MODE": "continuous",
-
-    "DO_HEARTBEAT": True,
-
-    "DO_TRANSCRIPTION": True,
-    "AMT_MODEL": "basic_pitch",
-    "KEEP_TRANSCRIBED_AUDIO": False,
-    "SERVER_URL": None
-}
-
-config = DEFAULTS.copy()
-try:
-    with open("client/config.json", "r") as file:
-        data = json.load(file)
-        config.update(data)
-except FileNotFoundError:
-    logging.warning(f"Client config.json not found, using system defaults.")
-
-
 # set up Octavio logger
 logging.basicConfig(
     level=logging.WARNING,  # Let third-party libraries report warnings/errors
@@ -57,6 +35,41 @@ logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stderr)
 handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(handler)
+
+# Import configs
+DEFAULTS = {
+    "DO_RECORDING": True,
+    "RECORDING_SESSION_MODE": "continuous",
+
+    "DO_HEARTBEAT": True,
+
+    "DO_TRANSCRIPTION": True,
+    "AMT_MODEL": "basic_pitch",
+    "KEEP_TRANSCRIBED_AUDIO": False,
+    "SERVER_URL": None
+}
+
+try:
+    with open("client/config.json", "r") as file:
+        config = json.load(file)
+    logging.info("Successfully load client/config.json")
+    print("beanits")
+except FileNotFoundError:
+    logging.error("Failed to load client/config.json")
+
+REQUIRED_KEYS = {
+    "DO_RECORDING", "RECORDING_SESSION_MODE", "DO_HEARTBEAT",
+    "DO_TRANSCRIPTION", "KEEP_TRANSCRIBED_AUDIO", "AMT_MODEL",
+    "CHUNK_SECS", "SESSION_CAP_MINUTES", "SILENCE_THRESHOLD", "PRIVACY_MINUTES",
+    "NUM_SERVER_ATTEMPTS", "SERVER_RETRY_WAIT_SECONDS", "SERVER_FAILURE_WAIT_SECONDS",
+    "HARDWARE_INTERACTION_WAIT_SECONDS", "RED_PIN", "GREEN_PIN", "BUTTON_PIN",
+    "AMT_PARAMS",
+}
+
+def validate_config(config: dict) -> None:
+    missing = REQUIRED_KEYS - config.keys()
+    if missing:
+        raise SystemExit(f"client/config.json is missing keys: {sorted(missing)}")
 
 
 class OctavioClient:
@@ -135,7 +148,7 @@ class OctavioClient:
         self.exit_flag.set()
         
     
-    async def run_heartbeat(self):
+    def run_heartbeat(self):
         logger.info("Heartbeat script running")
         while not self.exit_flag.wait(timeout=30):
             logger.info("Sending heartbeat")
@@ -163,19 +176,20 @@ class OctavioClient:
             print("Badum tssss")
             time.sleep(3)
 
-    async def run_transcription(self):
+    def run_transcription(self):
         raise NotImplementedError
     
-    async def run_session_manager(self):
+    def run_session_manager(self):
         raise NotImplementedError
     
-    async def run_recording(self):
+    def run_recording(self):
         while(True):
             print("I'm recording")
             time.sleep(30)
 
 
 if __name__ == '__main__':
+    print(config.keys())
     print(config)
     client = OctavioClient(
         do_recording=config["DO_RECORDING"],

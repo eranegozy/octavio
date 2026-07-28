@@ -3,6 +3,7 @@ from basic_pitch.inference import predict, predict_and_save, Model
 from basic_pitch import ICASSP_2022_MODEL_PATH
 
 class BasicPitchAMT(AMTModel):
+    # TODO: TEST IF THIS WORKS
     def __init__(self):
         self.basic_pitch_model = Model(ICASSP_2022_MODEL_PATH)
 
