@@ -4,7 +4,7 @@ import Select from 'react-select';
 const SERVER_URL = "http://octavio-server.mit.edu:5001"
 const instrument_data_url = `${SERVER_URL}/api/instrument`
 const MIDI_URL = `${SERVER_URL}/api/midi`
-import MidiDisplay from './MidiDisplay.jsx'
+import MidiPlayer from './MidiPlayer.jsx'
 
 const dropdownStyle = {
   option: provided => ({
@@ -88,7 +88,7 @@ const InstrumentSelector = ({ all_instruments }) => {
         />
       </div>
     <button onClick={() => handleClick()}>Go</button>
-    {showMIDI && <MidiDisplay midiUrl={`${MIDI_URL}?instrument_id=${selectedInstrument.value}&session_id=${selectedSession.value}`}/>}
+    {showMIDI && <MidiPlayer midiUrl={`${MIDI_URL}?instrument_id=${selectedInstrument.value}&session_id=${selectedSession.value}`}/>}
     </div>
   );
 };
