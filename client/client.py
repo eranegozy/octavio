@@ -172,14 +172,14 @@ class OctavioClient:
     def start(self):
         logger.info("Starting client")
 
+        self.session_manager = get_session_manager()
+        logger.info("Started session manager")
+
         if self.do_heartbeat:
             self.heartbeat_thread.start()
             logger.info("Started heartbeat")
 
         if self.do_recording:
-            self.session_manager = get_session_manager()
-            logger.info("Started session manager")
-
             self.recording_thread.start()
             logger.info("Started recording")
 
