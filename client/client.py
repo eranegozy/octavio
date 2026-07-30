@@ -202,7 +202,7 @@ class OctavioClient:
                 logger.info(f"Sending heartbeat to {self.heartbeat_endpoint_url}")
                 request_data = {
                     'time': datetime.datetime.now().isoformat(),
-                    'session': self.session_id,
+                    'session': self.session_manager.get_session_id(),
                 }
                 headers = {
                     'Content-Type': 'application/json'
@@ -219,7 +219,7 @@ class OctavioClient:
                 else:
                     logger.info("Successfully sent heartbeat")
             else:
-                logger.info(f"Local heartbeat message at time {datetime.datetime.now().isoformat()}")
+                logger.info(f"Local heartbeat message at time {datetime.datetime.now().isoformat()} and session {self.session_manager.get_session_id()}")
                         
         logger.info("Heartbeat script exiting")
     
