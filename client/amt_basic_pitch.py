@@ -2,6 +2,11 @@ from amt import AMTModel
 from basic_pitch.inference import predict, predict_and_save, Model
 from basic_pitch import ICASSP_2022_MODEL_PATH
 
+BP_REQUIRED_KEYS = {
+    'TRANSCRIPTION_PARAMS.AMT_PARAMS.basic_pitch.min_frequency', 'TRANSCRIPTION_PARAMS.AMT_PARAMS.basic_pitch.max_frequency', 
+    'TRANSCRIPTION_PARAMS.AMT_PARAMS.basic_pitch.onset_threshold', 'TRANSCRIPTION_PARAMS.AMT_PARAMS.basic_pitch.frame_threshold', 
+}
+
 class BasicPitchAMT(AMTModel):
     # TODO: TEST IF THIS WORKS
     def __init__(self):

@@ -10,17 +10,35 @@ Note: documentation in this file was written with assistance from AI tools.
 
 import os
 import sys
-
-# from amt import AMTModel, get_amt_model
-
 import logging
 import threading
 import time
 import json
 import signal
 import datetime
-import requests
 import asyncio
+from pathlib import Path
+
+import requests                         # pip install requests
+from dotenv import load_dotenv          # pip install python-dotenv
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from amt import get_amt_model
+from session_manager import get_session_manager
+
+from amt_basic_pitch import BP_REQUIRED_KEYS
+from amt_transkun import TK_REQUIRED_KEYS
+CLIENT_REQUIRED_KEYS = {
+    'RED_PIN', 'GREEN_PIN', 'BUTTON_PIN', 
+    'DO_RECORDING', 'RECORDING_PARAMS.RECORDING_SESSION_MODE', 'RECORDING_PARAMS.CHUNK_SECS', 'RECORDING_PARAMS.SESSION_CAP_MINUTES', 'RECORDING_PARAMS.SILENCE_THRESHOLD', 'RECORDING_PARAMS.PRIVACY_MINUTES', 
+    'DO_HEARTBEAT', 
+    'DO_TRANSCRIPTION', 'TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO', 'TRANSCRIPTION_PARAMS.AMT_MODEL', 
+    'DO_UPLOAD', 'UPLOAD_PARAMS.NUM_SERVER_ATTEMPTS', 'UPLOAD_PARAMS.SERVER_RETRY_WAIT_SECONDS', 'UPLOAD_PARAMS.SERVER_FAILURE_WAIT_SECONDS', 'UPLOAD_PARAMS.HARDWARE_INTERACTION_WAIT_SECONDS',
+    'SERVER_URL'
+}
 
 # set up Octavio logger
 logging.basicConfig(
@@ -36,40 +54,52 @@ handler = logging.StreamHandler(sys.stderr)
 handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(handler)
 
-# Import configs
-DEFAULTS = {
-    "DO_RECORDING": True,
-    "RECORDING_SESSION_MODE": "continuous",
+def flatten_json(nested_json, separator='.'):
+    out = {}
+    
+    def flatten(x, name=''):
+        if isinstance(x, dict):
+            for a in x:
+                flatten(x[a], f"{name}{a}{separator}")
+        elif isinstance(x, list):
+            for i, a in enumerate(x):
+                flatten(a, f"{name}{i}{separator}")
+        else:
+            out[name[:-1]] = x
 
-    "DO_HEARTBEAT": True,
+    flatten(nested_json)
+    return out
 
-    "DO_TRANSCRIPTION": True,
-    "AMT_MODEL": "basic_pitch",
-    "KEEP_TRANSCRIBED_AUDIO": False,
-    "SERVER_URL": None
-}
+def load_configs():
+    script_dir = Path(__file__).parent
+    config_json_dir = script_dir / "config.json"
+    logger.info(f"Loading client config from {config_json_dir}")
+    try:
+        with open(config_json_dir, "r") as file:
+            config = json.load(file)
+        logger.info("Successfully loaded client config")
+    except Exception as e:
+        logger.error(f"Failed to load client config: {e}")
 
-try:
-    with open("client/config.json", "r") as file:
-        config = json.load(file)
-    logging.info("Successfully load client/config.json")
-    print("beanits")
-except FileNotFoundError:
-    logging.error("Failed to load client/config.json")
+    dotenv_dir = script_dir / ".env"
 
-REQUIRED_KEYS = {
-    "DO_RECORDING", "RECORDING_SESSION_MODE", "DO_HEARTBEAT",
-    "DO_TRANSCRIPTION", "KEEP_TRANSCRIBED_AUDIO", "AMT_MODEL",
-    "CHUNK_SECS", "SESSION_CAP_MINUTES", "SILENCE_THRESHOLD", "PRIVACY_MINUTES",
-    "NUM_SERVER_ATTEMPTS", "SERVER_RETRY_WAIT_SECONDS", "SERVER_FAILURE_WAIT_SECONDS",
-    "HARDWARE_INTERACTION_WAIT_SECONDS", "RED_PIN", "GREEN_PIN", "BUTTON_PIN",
-    "AMT_PARAMS",
-}
+    logger.info(f"Loading environment variables from {dotenv_dir}")
+    try:
+        load_dotenv(dotenv_dir)
+        config.update(dict(os.environ))
+        logger.info("Successfully loaded client environment variables")
+    except Exception as e:
+        logger.error(f"Failed to load client environment variables: {e}")
 
-def validate_config(config: dict) -> None:
-    missing = REQUIRED_KEYS - config.keys()
+    return config
+
+
+def validate_configs(config: dict, required_keys: set) -> None:
+    missing = required_keys - config.keys()
     if missing:
-        raise SystemExit(f"client/config.json is missing keys: {sorted(missing)}")
+        raise SystemExit(f"Missing configs: {sorted(missing)}")
+    else:
+        logger.info("All required configs found")
 
 
 class OctavioClient:
@@ -90,14 +120,17 @@ class OctavioClient:
         do_transcription: bool,
         amt_model: str | None,
         keep_transcribed_audio: bool | None,
+        do_upload: bool,
         server_url: str | None
     ):
+        self.session_id = None
+        
+        self.do_heartbeat = do_heartbeat
+
         self.do_recording = do_recording
         if do_recording and recording_session_mode is None:
             raise ValueError("RECORDING_SESSION_MODE is required when DO_RECORDING is true")
         self.recording_session_mode = recording_session_mode
-
-        self.do_heartbeat = do_heartbeat
         
         self.do_transcription = do_transcription
         if do_transcription and amt_model is None:
@@ -107,11 +140,17 @@ class OctavioClient:
             raise ValueError("KEEP_TRANSCRIBED_AUDIO is required when DO_TRANSCRIPTION is true")
         self.keep_transcribed_audio = keep_transcribed_audio
 
-        self.server_url = server_url
-        self.midi_path = '/piano'
-        self.heartbeat_path = '/heartbeat'
-        self.midi_endpoint_url = f'{self.server_url}{self.midi_path}'
-        self.heartbeat_endpoint_url = f'{self.server_url}{self.heartbeat_path}'
+        self.do_upload = do_upload
+
+        if server_url:
+            self.use_server = True
+            self.server_url = server_url
+            self.midi_path = '/piano'
+            self.heartbeat_path = '/heartbeat'
+            self.midi_endpoint_url = f'{self.server_url}{self.midi_path}'
+            self.heartbeat_endpoint_url = f'{self.server_url}{self.heartbeat_path}'
+        else:
+            self.use_server = False
 
         # The atomic flag to signal all threads to exit
         self.exit_flag = threading.Event()
@@ -119,85 +158,114 @@ class OctavioClient:
         # Register both SIGINT and SIGTERM to the same cleanup mechanism
         signal.signal(signal.SIGINT, self.handle_shutdown_signal)
         signal.signal(signal.SIGTERM, self.handle_shutdown_signal)
-    
-    def start(self):
-        logging.info("Starting client")
 
         if self.do_heartbeat:
             self.heartbeat_thread = threading.Thread(target = self.run_heartbeat, daemon=True)
+        if self.do_recording:
+#            self.session_manager_thread = threading.Thread(target = self.run_session_manager, daemon=True) #TODO: currently unused, session manager is fully synchronous and updates when called instead of being a thread
+            self.recording_thread = threading.Thread(target = self.run_recording, daemon=False)             # Must finish before program exit, no partial recordings
+        if self.do_transcription:
+            self.transcription_thread = threading.Thread(target = self.run_transcription, daemon=False)     # Must finish before program exit, no partial transcriptions
+        if self.do_upload:
+            self.upload_thread = threading.Thread(target = self.run_upload, daemon=False)                   # Must finish before program exit, no partial uploads
+    
+    def start(self):
+        logger.info("Starting client")
+
+        if self.do_heartbeat:
             self.heartbeat_thread.start()
-            logging.info("Started heartbeat")
+            logger.info("Started heartbeat")
+
+        if self.do_recording:
+            self.session_manager = get_session_manager()
+            logger.info("Started session manager")
+
+            self.recording_thread.start()
+            logger.info("Started recording")
 
         if self.do_transcription:
-            # self.Model = get_amt_model(self.amt_model)
-            self.transcription_thread = threading.Thread(target = self.run_transcription, daemon=False) # Must finish before program exit, no partial transcriptions
+            self.Model = get_amt_model(self.amt_model)
             self.transcription_thread.start()
-            logging.info("Started transcription")
-    
-        if self.do_recording:
-            self.session_manager_thread = threading.Thread(target = self.run_session_manager, daemon=True)
-            self.session_manager_thread.start()
-            logging.info("Started session manager")
+            logger.info("Started transcription")
 
-            self.recording_thread = threading.Thread(target = self.run_recording, daemon=False)         # Must finish before program exit, no partial recordings
-            self.recording_thread.start()
-            logging.info("Started recording")
+        if self.do_upload:
+            self.upload_thread.start()
 
-    def handle_shutdown_signal(self):
-        logger.info('System shutting down')
+    def handle_shutdown_signal(self, signum, frame):
+        logger.info(f'Received signal {signum}. Shutting down...')
         self.exit_flag.set()
-        
     
     def run_heartbeat(self):
         logger.info("Heartbeat script running")
         while not self.exit_flag.wait(timeout=30):
-            logger.info("Sending heartbeat")
-            request_data = {
-                'time': datetime.datetime.now().isoformat(),
-                'session': self.session_id,
-            }
-            headers = {
-                'Content-Type': 'application/json'
-            }
-            try:
-                r = requests.post(
-                    self.heartbeat_endpoint_url,
-                    json=request_data,
-                    headers=headers,
-                    timeout=10
-                )
-            except Exception as e:
-                logger.info(f"Failed to send heartbeat: {e}")
+            if self.use_server:
+                logger.info(f"Sending heartbeat to {self.heartbeat_endpoint_url}")
+                request_data = {
+                    'time': datetime.datetime.now().isoformat(),
+                    'session': self.session_id,
+                }
+                headers = {
+                    'Content-Type': 'application/json'
+                }
+                try:
+                    r = requests.post(
+                        self.heartbeat_endpoint_url,
+                        json=request_data,
+                        headers=headers,
+                        timeout=10
+                    )
+                except Exception as e:
+                    logger.info(f"Failed to send heartbeat: {e}")
+                else:
+                    logger.info("Successfully sent heartbeat")
             else:
-                logger.info("Successfully sent heartbeat")
+                logger.info(f"Local heartbeat message at time {datetime.datetime.now().isoformat()}")
                         
         logger.info("Heartbeat script exiting")
-        while(True):
-            print("Badum tssss")
-            time.sleep(3)
+    
+    def run_session_manager(self): #TODO: currently unused, current session manager is fully synchronous and only updates on actions involving session state
+        session_manager = get_session_manager()
+        while not self.exit_flag.wait(timeout=4):
+            logger.info("I'm managing the session")
+            session_manager.handle_recording_activity()
+        logger.info("Session manager successfully exited")
+
+    def run_recording(self):
+        while not self.exit_flag.wait(timeout=5):
+            logger.info("I'm recording")
+        logger.info("Recording successfully exited")
 
     def run_transcription(self):
-        raise NotImplementedError
-    
-    def run_session_manager(self):
-        raise NotImplementedError
-    
-    def run_recording(self):
-        while(True):
-            print("I'm recording")
-            time.sleep(30)
+        while not self.exit_flag.wait(timeout=6):
+            logger.info("I'm transcribing")
+        logger.info("Transcription successfully exited")
+
+    def run_upload(self):
+        while not self.exit_flag.wait(timeout=7):
+            logger.info("I'm uploading")
+        logger.info("Uploading successfully exited")
 
 
 if __name__ == '__main__':
-    print(config.keys())
-    print(config)
+
+    config = flatten_json(load_configs())
+
+    required_keys = CLIENT_REQUIRED_KEYS | BP_REQUIRED_KEYS | TK_REQUIRED_KEYS
+
+    validate_configs(config, required_keys)
+
+    if config["SERVER_URL"] == "":
+        config["SERVER_URL"] = None
+        logger.warning("Environment field SERVER_URL empty, launching client without pinging server. Heartbeat and MIDI uploads will not occur for this session.")
+
     client = OctavioClient(
         do_recording=config["DO_RECORDING"],
-        recording_session_mode=config["RECORDING_SESSION_MODE"],
+        recording_session_mode=config["RECORDING_PARAMS.RECORDING_SESSION_MODE"],
         do_heartbeat=config["DO_HEARTBEAT"],
         do_transcription=config["DO_TRANSCRIPTION"],
-        amt_model=config["AMT_MODEL"],
-        keep_transcribed_audio=config["KEEP_TRANSCRIBED_AUDIO"],
+        amt_model=config["TRANSCRIPTION_PARAMS.AMT_MODEL"],
+        keep_transcribed_audio=config["TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO"],
+        do_upload=config["DO_UPLOAD"],
         server_url=config["SERVER_URL"]
     )
     client.start()

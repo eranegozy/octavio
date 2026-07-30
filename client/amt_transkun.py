@@ -10,6 +10,10 @@ import logging
 from transkun.transcribe import readAudio
 from transkun.Data import writeMidi
 
+TK_REQUIRED_KEYS = {
+    'TRANSCRIPTION_PARAMS.AMT_PARAMS.transkun.device', 'TRANSCRIPTION_PARAMS.AMT_PARAMS.transkun.weight_path', 'TRANSCRIPTION_PARAMS.AMT_PARAMS.transkun.conf_path'
+}
+
 class TranskunAMT(AMTModel):
     # TODO: TEST IF THIS WORKS
     def __init__(self, device="cpu", weight_path=None, conf_path=None):
