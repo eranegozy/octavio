@@ -82,7 +82,7 @@ function App() {
       <h1>Octavio Website</h1>
       <h2>Online Instruments: {online_instruments}</h2>
       <h2>{date.toDateString()}, {date.toTimeString()}</h2>
-      <div className="logs">
+      {/* <div className="logs">
         <DatePicker showIcon selected={date} onChange={(date) => {
           setDate(date);
           fetchLog(date);
@@ -96,7 +96,7 @@ function App() {
         <details>
           <div className="last-sessions">{'Sessions: \n' + latest_sessions}</div>
         </details>
-      </div>
+      </div> */}
       <InstrumentSelector all_instruments={instrument_choices}/>
     </>
   )

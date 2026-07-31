@@ -91,7 +91,7 @@ export default function MidiPlayer({ midiUrl }) {
   return (<div>
     <div>
         <button onClick={togglePlayback}> {isPlaying ? "Pause" : "Play"} </button>
-        <button onClick={stopPlayback}> Stop </button>
+        <button onClick={stopPlayback}> Reset </button>
       </div>
     <MemoPianoRoll
       width={1200}
