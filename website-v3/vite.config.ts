@@ -8,4 +8,7 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+  define: {
+    global: 'globalThis', // Maps 'global' to the window's globalThis object
+  },
 })
