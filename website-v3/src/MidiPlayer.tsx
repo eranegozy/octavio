@@ -1,45 +1,53 @@
 import React, { useEffect, useState, useRef, memo, useCallback } from "react";
 import * as Tone from "tone"
 import PianoRoll from "react-piano-roll";
-import { loadAndFormatMidi } from "./MidiLoader";
+import { useParams } from "react-router";
+import { loadAndFormatMidi } from "./MidiLoader.tsx";
 
 const MemoPianoRoll = memo(
   React.forwardRef((props, ref) => <PianoRoll ref={ref} {...props} />)
 );
 
-export default function MidiPlayer({ midiUrl }) {
+const SERVER_URL = "http://octavio-server.mit.edu:5001"
+const MIDI_ROOT_URL = `${SERVER_URL}/api/midi`
+
+export default function MidiPlayer() {
   const [loading, setLoading] = useState(true);
   const [isPlaying, setPlaying] = useState(false);
   const [midiData, setMidiData] = useState({ notes: [], bpm: 120 });
 
-  const playbackRef = useRef();
-  const synthRef = useRef();
- 
+  const playbackRef = useRef(null);
+  const synthRef = useRef(null);
+
+  const {iid, sid} = useParams();
+
   useEffect(() => {
     const synth = new Tone.PolySynth(Tone.Synth).toDestination();
     synthRef.current = synth;
 
     return () => {
-      Tone.Transport.cancel();
+      Tone.getTransport().cancel();
       synth.dispose();
     };
   }, []);
 
+  const midiUrl = `${MIDI_ROOT_URL}?instrument_id=${iid}&session_id=${sid}`
+
   useEffect(() => {
     let isMounted = true;
 
-    Tone.Transport.stop();
-    Tone.Transport.cancel();
+    Tone.getTransport().stop();
+    Tone.getTransport().cancel();
 
     loadAndFormatMidi(midiUrl)
       .then(({ notes, bpm }) => {
         if (!isMounted) return;
 
-        Tone.Transport.bpm.value = bpm;
+        Tone.getTransport().bpm.value = bpm;
 
         // Schedule audio playback in Tone.js
         notes.forEach(([time, note, duration]) => {
-          Tone.Transport.schedule((timeRef) => {
+          Tone.getTransport().schedule((timeRef) => {
             synthRef.current?.triggerAttackRelease(note, duration || "8n", timeRef);
           }, time);
         });
@@ -59,17 +67,17 @@ export default function MidiPlayer({ midiUrl }) {
   }, [midiUrl]);
 
   const togglePlayback = useCallback( async () => {
-    if (Tone.context.state !== "running") {
+    if (Tone.getContext().state !== "running") {
       await Tone.start();
     }
 
     setPlaying((currentlyPlaying) => {
       if (currentlyPlaying) {
-        Tone.Transport.pause();
+        Tone.getTransport().pause();
         playbackRef.current?.pause();
         return false;
       } else {
-        Tone.Transport.start();
+        Tone.getTransport().start();
         playbackRef.current?.play();
         return true;
       }
@@ -77,7 +85,7 @@ export default function MidiPlayer({ midiUrl }) {
   }, []);
 
   const stopPlayback = useCallback(() => {
-    Tone.Transport.stop();
+    Tone.getTransport().stop();
     if (playbackRef.current){
       playbackRef.current.seek("0:0:0");
       playbackRef.current.pause();
@@ -93,8 +101,8 @@ export default function MidiPlayer({ midiUrl }) {
         <button onClick={stopPlayback}> Reset </button>
       </div>
     <MemoPianoRoll
-      width={1200}
-      height={660}
+    //   width={1200}
+    //   height={660}
       key={midiUrl}
       noteData={midiData.notes}
       ref = {playbackRef}

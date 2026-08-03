@@ -9,8 +9,8 @@ import * as Tone from "tone";
  * @returns {Promise<{ notes: Array<[string, string, string]>, bpm: number }>} (a Promise containing)
  *      formatted note data: an array of [transportTime, note, noteDuration] & detected BPM
  */
-export async function loadAndFormatMidi(url) {
-
+export async function loadAndFormatMidi(url: string) {
+    console.log(url)
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to load MIDI file from ${url}: ${response.statusText}`);
@@ -18,7 +18,7 @@ export async function loadAndFormatMidi(url) {
   const arrayBuffer = await response.arrayBuffer();
   const midi = new Midi(arrayBuffer);
   const bpm = midi.header.tempos[0]?.bpm || 120;
-  const formattedNotes = [];
+  const formattedNotes: Array<[string, string, string]> = [];
 
   midi.tracks.forEach((track) => {
     track.notes.forEach((note) => {
