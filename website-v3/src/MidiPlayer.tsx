@@ -3,6 +3,7 @@ import * as Tone from "tone"
 import PianoRoll from "react-piano-roll";
 import { useParams } from "react-router";
 import { loadAndFormatMidi } from "./MidiLoader.tsx";
+import { useNavigate } from 'react-router';
 
 const MemoPianoRoll = memo(
   React.forwardRef((props, ref) => <PianoRoll ref={ref} {...props} />)
@@ -10,6 +11,16 @@ const MemoPianoRoll = memo(
 
 const SERVER_URL = "http://octavio-server.mit.edu:5001"
 const MIDI_ROOT_URL = `${SERVER_URL}/api/midi`
+
+function BackButtonPress() {
+    const navigate = useNavigate();
+
+    return (
+      <nav>
+        <button onClick={() => navigate('/')}>Return</button>
+      </nav>
+    )
+  }
 
 export default function MidiPlayer() {
   const [loading, setLoading] = useState(true);
@@ -108,6 +119,7 @@ export default function MidiPlayer() {
       ref = {playbackRef}
       bpm= {midiData.bpm}
     />
+    <BackButtonPress />
     </div>
   );
 }

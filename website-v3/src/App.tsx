@@ -14,10 +14,10 @@ const log_url = `${SERVER_URL}/api/logs`
 function App() {
   const [online_instruments, setOnlineInstruments] = useState([])
   const [instrument_choices, setInstrumentChoices] = useState([])
-  const [latest_sessions, setLatestSessions] = useState([])
+  // const [latest_sessions, setLatestSessions] = useState([])
   const [date, setDate] = useState(new Date())
-  const [session_ids, setSessionIds] = useState(new Map())
-  const [log_info, setLogInfo] = useState("")
+  // const [session_ids, setSessionIds] = useState(new Map())
+  // const [log_info, setLogInfo] = useState("")
 
   async function fetchOnlineInstruments() {
     const response = await fetch(online_instruments_url)
@@ -73,6 +73,7 @@ function App() {
   useEffect(() => {
     init();
     const intervalId = setInterval(fetchOnlineInstruments, 30 * 1000) // 30 seconds
+    const intervalTime = setInterval(() => {setDate(new Date())}, 1000)
     return () => clearInterval(intervalId);
   }, [])
 

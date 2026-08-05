@@ -14,7 +14,7 @@ const dropdownStyle = {
 }
 
 function NavButton({selectedInstrument, selectedSession}) {
-    const navigate = useNavigate(); //  WORKS (Inside context)
+    const navigate = useNavigate();
     return (
         <nav>
         <button onClick={() => {
