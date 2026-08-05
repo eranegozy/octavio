@@ -36,8 +36,8 @@ class TranskunAMT(AMTModel):
     def transcribe(self, input_audio_path, output_midi_path, device="cpu"):
         fs, audio = readAudio(input_audio_path)
         if fs != self.model.fs:
-            logging.warning(f"Sampling rate mismatch between audio {input_audio_path} and Transkun AMT Model")
-            audio = soxr.resample(audio, fs, self.model_fs)
+            logging.warning(f"Sampling rate mismatch between audio {input_audio_path} and Transkun AMT Model, ")
+            audio = soxr.resample(audio, fs, self.model.fs)
         x = torch.from_numpy(audio).to(device)
         notes_estimate = self.model.transcribe(x, discardSecondHalf=False)
         writeMidi(notes_estimate).write(output_midi_path)

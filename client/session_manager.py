@@ -31,10 +31,10 @@ class ContinuousSessionManager(SessionManager):
 
     def update_state(self):
         now = datetime.datetime.now()
-        if self.privacy_last_requested and now - self.privacy_last_requested > datetime.timedelta(minutes=1): #TODO: config variable
+        if self.privacy_last_requested and now - self.privacy_last_requested > datetime.timedelta(minutes=30): #TODO: config variable
             self.privacy_last_requested = None
         
-        if self.last_recording_activity and now - self.last_recording_activity > datetime.timedelta(minutes=0.01): #TODO: config variable
+        if self.last_recording_activity and now - self.last_recording_activity > datetime.timedelta(minutes=10): #TODO: config variable
             self.session_id = None
             self.last_recording_activity = None
 

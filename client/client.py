@@ -12,15 +12,18 @@ import os
 import sys
 import logging
 import threading
-import time
+import queue
 import json
 import signal
 import datetime
-import asyncio
+import wave
 from pathlib import Path
 
 import requests                         # pip install requests
 from dotenv import load_dotenv          # pip install python-dotenv
+import pyaudio
+import numpy as np
+from scipy.io.wavfile import write
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
@@ -223,16 +226,83 @@ class OctavioClient:
                         
         logger.info("Heartbeat script exiting")
     
-    def run_session_manager(self): #TODO: currently unused, current session manager is fully synchronous and only updates on actions involving session state
-        session_manager = get_session_manager()
-        while not self.exit_flag.wait(timeout=4):
-            logger.info("I'm managing the session")
-            session_manager.handle_recording_activity()
-        logger.info("Session manager successfully exited")
+    # def run_session_manager(self): #TODO: currently unused, current session manager is fully synchronous and only updates on actions involving session state
+    #     session_manager = get_session_manager()
+    #     while not self.exit_flag.wait(timeout=4):
+    #         logger.info("I'm managing the session")
+    #         session_manager.handle_recording_activity()
+    #     logger.info("Session manager successfully exited")
 
     def run_recording(self):
-        while not self.exit_flag.wait(timeout=5):
-            logger.info("I'm recording")
+        
+        p = pyaudio.PyAudio()
+
+        # Find audio input device and set sampling rate
+        device_index = -1
+        sampling_rate = None
+        for i in range(p.get_device_count()):   # search through all connected audio devices
+            device_info = p.get_device_info_by_index(i)
+            if device_info['maxInputChannels'] > 0:     # device with at least one input channel is the recording device
+                sampling_rate = int(device_info['defaultSampleRate'])
+                device_index = i
+                logger.info(f'Found audio input device {device_info["name"]}(ID {device_index}) with sampling rate {sampling_rate} Hz')
+                break
+        if device_index == -1:
+            raise RuntimeError("Could not find recording device")
+        if not sampling_rate:
+            raise RuntimeError("Could not determine sampling rate of recording device")
+
+        # Callback function and thread-safe audio queue for PyAudio non-blocking mode
+        buffers_to_concatenate = queue.Queue(maxsize=50) # each queue item is a full buffer with CHUNK # of samples
+        buffer_critical_overflow = False
+
+        def stream_callback(in_data, frame_count, time_info, status):
+            nonlocal buffer_critical_overflow
+            try:
+                buffers_to_concatenate.put_nowait(in_data)
+                return (None, pyaudio.paContinue)
+            except queue.Full:
+                critical_overflow = True
+                logger.error("Main loop fell behind! Buffer overflow detected.")
+                return (None, pyaudio.paAbort)
+
+        # Starting PyAudio recording in non-blocking mode (runs stream_callback in a separate thread)
+        CHUNK = 4096 # TODO: refactor to use config
+        FORMAT = pyaudio.paInt16
+        CHANNELS = 1
+        
+        stream = p.open(
+            format=FORMAT, 
+            channels=CHANNELS, 
+            rate=sampling_rate,
+            input=True, 
+            input_device_index=device_index, 
+            frames_per_buffer=CHUNK,
+            stream_callback=stream_callback # non-blocking mode
+        )
+
+        logger.info("Recording... Press Ctrl+C to stop.")
+
+        audio_buffers = []
+
+        while not self.exit_flag.is_set():
+            buffer_bytes = buffers_to_concatenate.get()
+            samples = np.frombuffer(buffer_bytes, dtype=np.int16)
+                
+            logger.info(f"Captured {len(buffer_bytes)} bytes")
+
+            audio_buffers.append(samples)
+
+        # Clean up resources safely
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+        audio_frames = np.concatenate(audio_buffers)
+
+        print(audio_frames)
+
+        write("output.wav", sampling_rate, audio_frames)
         logger.info("Recording successfully exited")
 
     def run_transcription(self):
