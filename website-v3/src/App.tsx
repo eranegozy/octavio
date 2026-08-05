@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 // import DatePicker from "react-datepicker"
 // import 'react-datepicker/dist/react-datepicker.css'
+import DateSelector from './DateSelector.tsx'
 import './App.css'
 
 import InstrumentSelector from './InstrumentSelector.tsx'
@@ -16,6 +17,7 @@ function App() {
   const [instrument_choices, setInstrumentChoices] = useState([])
   // const [latest_sessions, setLatestSessions] = useState([])
   const [date, setDate] = useState(new Date())
+  const [sessionDates, setSessionDates] = useState(new Array<Date>())
   // const [session_ids, setSessionIds] = useState(new Map())
   // const [log_info, setLogInfo] = useState("")
 
@@ -36,11 +38,11 @@ function App() {
     setInstrumentChoices(formattedOptions);
   }
   
-  async function fetchLatestSessions(id) {
-    const response = await fetch(`${instrument_data_url}?instrument_id=${id}`);
-    const response_text = await response.text();
-    setLatestSessions(response_text);
-  }
+  // async function fetchLatestSessions(id) {
+  //   const response = await fetch(`${instrument_data_url}?instrument_id=${id}`);
+  //   const response_text = await response.text();
+  //   setLatestSessions(response_text);
+  // }
 
   async function fetchLog(date) {
     const params = {
@@ -63,10 +65,19 @@ function App() {
     setSessionIds(new_session_ids);
   }
 
+  async function fetchSessionDates(){
+    const instrumentDataUrl = `${SERVER_URL}/api/all`
+    const allDates = new Array<Date>();
+    const response = await fetch(instrumentDataUrl)
+    // const response_json = await response.json() //JSON.parse(await response.text());
+    console.log(await response.text());
+  }
+
   function init() {
     fetchOnlineInstruments();
     fetchInstrumentChoices();
-    fetchLatestSessions('10');
+    // fetchLatestSessions('10');
+    fetchSessionDates();
     fetchLog();
   }
 
@@ -79,7 +90,7 @@ function App() {
 
   return (
     <>
-      <h1>Octavio Website</h1>
+      <h1>Octavio</h1>
       <h2>Online Instruments: {online_instruments}</h2>
       <h2>{date.toDateString()}, {date.toTimeString()}</h2>
       {/* <div className="logs">
@@ -97,6 +108,7 @@ function App() {
           <div className="last-sessions">{'Sessions: \n' + latest_sessions}</div>
         </details>
       </div> */}
+      <DateSelector notificationDates={new Array<Date>()}/>
       <InstrumentSelector all_instruments={instrument_choices}/>
     </>
   )
