@@ -16,11 +16,12 @@ import queue
 import json
 import signal
 import datetime
-import wave
 import time
-import pathlib
+import resource
+import traceback # TODO: for testing
 
-import requests                         # pip install requests
+import pathlib
+import requests        # pip install requests
 import dotenv          # pip install python-dotenv
 import pyaudio
 import numpy as np
@@ -197,49 +198,6 @@ class OctavioClient:
         if self.do_upload:
             self.upload_thread.start()
 
-        current_process = psutil.Process(os.getpid())
-        threads = current_process.threads()
-        print(threads)
-
-        def get_thread_cpu_usage(interval=10.0):
-            p = psutil.Process(os.getpid())
-
-            # First snapshot: Total process CPU time and individual thread times
-            t1_proc = sum(p.cpu_times())
-            t1_threads = {t.id: t.user_time + t.system_time for t in p.threads()}
-
-            time.sleep(interval)
-
-            # Second snapshot
-            t2_proc = sum(p.cpu_times())
-            t2_threads = {t.id: t.user_time + t.system_time for t in p.threads()}
-
-            # Total process utilization percentage over the interval
-            proc_percent = p.cpu_percent()
-            print(proc_percent)
-
-            proc_time_delta = t2_proc - t1_proc
-            if proc_time_delta <= 0:
-                return {}
-
-            # Distribute the overall process CPU % among the threads
-            thread_percentages = {}
-            for t_id, t2_time in t2_threads.items():
-                t1_time = t1_threads.get(t_id, 0)
-                thread_time_delta = t2_time - t1_time
-
-                # Percentage = (Thread Time Delta / Total Process Time Delta) * Total Process CPU %
-                thread_percentages[t_id] = (
-                    thread_time_delta / proc_time_delta
-                )
-
-            return thread_percentages
-
-
-        # Example execution
-        print(get_thread_cpu_usage())
-        print(self.thread_aliases)
-
     def handle_shutdown_signal(self, signum, frame):
         logger.info(f'Received signal {signum}. Shutting down...')
         self.shutdown_requested.set()
@@ -390,38 +348,50 @@ class OctavioClient:
         transcription_dir = pathlib.Path(sys.path[0]) / "client" / "transcriptions_upload_queue"
         save_audio_dir = pathlib.Path(sys.path[0]) / "client" / "recordings_saved"
 
-
         while not self.shutdown_requested.wait(timeout=1):
             file_names = sorted([p.name for p in audio_dir.iterdir() if p.suffix == ".wav"])
+            if len(file_names) == 0:
+                continue
+
             file_name = file_names[0]
 
             audio_source = audio_dir / file_name
             logger.info(f"Transcribing file {audio_source}")
 
-            transcription_name = file_name + "_" + config["TRANSCRIPTION_PARAMS.AMT_MODEL"]
-            transcription_path = (transcription_dir / transcription_name).with_suffix(".mid")
+            transcription_name = pathlib.Path(file_name).stem + f"_{config['TRANSCRIPTION_PARAMS.AMT_MODEL']}.mid" # tag on the model name to the transcribed file
+            transcription_path = transcription_dir / transcription_name
 
             if not os.path.exists(transcription_dir):
                 os.makedirs(transcription_dir)
 
-            self.Model.transcribe(audio_source, transcription_path)
+            try:
+                self.Model.transcribe(audio_source, transcription_path)
 
-            if config["TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO"]:
-                save_audio_path = save_audio_dir / file_name
+                if config["TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO"]:
+                    save_audio_path = save_audio_dir / file_name
+                
+                    if not os.path.exists(save_audio_dir):
+                        os.makedirs(save_audio_dir)
+                
+                    if os.path.exists(save_audio_path):
+                        logger.warning(f"Audio file {save_audio_path} already exists in saved audio directory, keeping existing file")
+                        audio_source.unlink()
+                    else:
+                        audio_source.rename(save_audio_path)
+                else:
+                    audio_source.unlink()
+                logger.info(f"Audio file {audio_source} successfully transcribed and removed")
 
-                if not os.path.exists(save_audio_dir):
-                    os.makedirs(save_audio_dir)
-
-                audio_source.rename(save_audio_path)
-            else:
-                audio_source.unlink()
+            except Exception as e:
+                logger.error(f"Transcription of audio file {audio_source} unsuccessful: {e}")
+                traceback.print_exc()
 
         logger.info("Transcription successfully exited")
 
     def run_upload(self):
         self.thread_aliases[threading.get_native_id()] = "run_upload"
 
-        while not self.shutdown_requested.wait(timeout=7):
+        while not self.shutdown_requested.wait(timeout=15):
             logger.info("I'm uploading")
         logger.info("Uploading successfully exited")
 
@@ -449,3 +419,12 @@ if __name__ == '__main__':
         server_url=config["SERVER_URL"]
     )
     client.start()
+
+    time.sleep(10)
+    usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == "darwin":
+        peak_mb = usage / (1024 * 1024)
+    else:
+        peak_mb = usage / 1024
+
+    print(f"Peak Memory Usage: {peak_mb:.2f} MB")

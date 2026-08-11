@@ -3,7 +3,7 @@
     "GREEN_PIN": 24,
     "BUTTON_PIN": 20,
 
-    "DO_RECORDING": true,
+    "DO_RECORDING": false,
     "RECORDING_PARAMS": {
         "RECORDING_SESSION_MODE": "continuous",
         "CHUNK_SECS": 30,
@@ -17,7 +17,7 @@
     "DO_TRANSCRIPTION": true,
     "TRANSCRIPTION_PARAMS": {
         "KEEP_TRANSCRIBED_AUDIO": true,
-        "AMT_MODEL": "basic_pitch",
+        "AMT_MODEL": "transkun-onnx",
         "AMT_PARAMS": {
             "basic_pitch": {
                 "min_frequency": 27.5,

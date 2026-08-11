@@ -1,0 +1,8 @@
+/recordings_saved
+/recordings_transcription_queue
+/transcriptions_saved
+/transcriptions_upload_queue
+
+transkun_backbone_scorer.int8.onnx
+transkun_backbone_scorer.onnx
+transkun_backbone_scorer.onnx.data
