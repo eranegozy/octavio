@@ -6,3 +6,4 @@
 transkun_backbone_scorer.int8.onnx
 transkun_backbone_scorer.onnx
 transkun_backbone_scorer.onnx.data
+transkun_backbone_scorer.preprocessed.onnx
