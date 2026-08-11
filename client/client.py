@@ -386,25 +386,36 @@ class OctavioClient:
     def run_transcription(self):
         self.thread_aliases[threading.get_native_id()] = "run_transcription"
 
-        audio_path = pathlib.Path(sys.path[0]) / "client" / "recordings_transcription_queue"
-        save_paths = [pathlib.Path(sys.path[0]) / "client" / "transcriptions_upload_queue"]
+        audio_dir = pathlib.Path(sys.path[0]) / "client" / "recordings_transcription_queue"
+        transcription_dir = pathlib.Path(sys.path[0]) / "client" / "transcriptions_upload_queue"
+        save_audio_dir = pathlib.Path(sys.path[0]) / "client" / "recordings_saved"
 
-        file_names = sorted([p.name for p in audio_path.iterdir() if p.suffix == ".wav"])
-        for file_name in file_names:
-            for save_path in save_paths:
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                self.Model.transcribe(audio_path / file_name, (save_path / file_name).with_suffix(".mid"))
 
-                if config["TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO"]:
-                    audio_save_path = pathlib.Path(sys.path[0]) / "client" / "recordings_saved" / file_name
-                    audio_source = audio_path / file_name
-                    audio_source.rename(audio_save_path)
-                else:
-                    audio_source.unlink()
+        while not self.shutdown_requested.wait(timeout=1):
+            file_names = sorted([p.name for p in audio_dir.iterdir() if p.suffix == ".wav"])
+            file_name = file_names[0]
 
-        while not self.shutdown_requested.wait(timeout=6):
-            logger.info("I'm transcribing")
+            audio_source = audio_dir / file_name
+            logger.info(f"Transcribing file {audio_source}")
+
+            transcription_name = file_name + "_" + config["TRANSCRIPTION_PARAMS.AMT_MODEL"]
+            transcription_path = (transcription_dir / transcription_name).with_suffix(".mid")
+
+            if not os.path.exists(transcription_dir):
+                os.makedirs(transcription_dir)
+
+            self.Model.transcribe(audio_source, transcription_path)
+
+            if config["TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO"]:
+                save_audio_path = save_audio_dir / file_name
+
+                if not os.path.exists(save_audio_dir):
+                    os.makedirs(save_audio_dir)
+
+                audio_source.rename(save_audio_path)
+            else:
+                audio_source.unlink()
+
         logger.info("Transcription successfully exited")
 
     def run_upload(self):
