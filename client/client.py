@@ -205,7 +205,7 @@ class OctavioClient:
     def run_heartbeat(self):
         self.thread_aliases[threading.get_native_id()] = "run_heartbeat"
         logger.info("Heartbeat script running")
-        while not self.shutdown_requested.wait(timeout=10):
+        while not self.shutdown_requested.wait(timeout=30):
             if self.use_server:
                 logger.info(f"Sending heartbeat to {self.heartbeat_endpoint_url}")
                 request_data = {
@@ -290,7 +290,7 @@ class OctavioClient:
         chunk_ctr = 0
         logger.info("Recording... Press Ctrl+C to stop.")
 
-        CHUNK_DURATION = 10 # 30 seconds
+        CHUNK_DURATION = 30 # TODO: make config. right now, 30 seconds
 
         buffers_per_chunk = int(CHUNK_DURATION * sampling_rate / FRAMES_PER_BUFFER)
 
