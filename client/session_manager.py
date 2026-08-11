@@ -44,7 +44,7 @@ class ContinuousSessionManager(SessionManager):
         now = datetime.datetime.now()
 
         if self.privacy_last_requested: # with state updated, is not None only if privacy is still ongoing
-            return
+            return None
         
         if self.session_id is None:
             new_session_id = generate_id()

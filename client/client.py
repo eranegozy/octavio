@@ -17,13 +17,15 @@ import json
 import signal
 import datetime
 import wave
-from pathlib import Path
+import time
+import pathlib
 
 import requests                         # pip install requests
-from dotenv import load_dotenv          # pip install python-dotenv
+import dotenv          # pip install python-dotenv
 import pyaudio
 import numpy as np
-from scipy.io.wavfile import write
+import scipy.io.wavfile
+import psutil
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
@@ -74,7 +76,7 @@ def flatten_json(nested_json, separator='.'):
     return out
 
 def load_configs():
-    script_dir = Path(__file__).parent
+    script_dir = pathlib.Path(__file__).parent
     config_json_dir = script_dir / "config.json"
     logger.info(f"Loading client config from {config_json_dir}")
     try:
@@ -88,7 +90,7 @@ def load_configs():
 
     logger.info(f"Loading environment variables from {dotenv_dir}")
     try:
-        load_dotenv(dotenv_dir)
+        dotenv.load_dotenv(dotenv_dir)
         config.update(dict(os.environ))
         logger.info("Successfully loaded client environment variables")
     except Exception as e:
@@ -126,8 +128,6 @@ class OctavioClient:
         do_upload: bool,
         server_url: str | None
     ):
-        self.session_id = None
-        
         self.do_heartbeat = do_heartbeat
 
         self.do_recording = do_recording
@@ -156,7 +156,8 @@ class OctavioClient:
             self.use_server = False
 
         # The atomic flag to signal all threads to exit
-        self.exit_flag = threading.Event()
+        self.shutdown_requested = threading.Event()
+        self.critical_failure_encountered = threading.Event()
         
         # Register both SIGINT and SIGTERM to the same cleanup mechanism
         signal.signal(signal.SIGINT, self.handle_shutdown_signal)
@@ -173,6 +174,8 @@ class OctavioClient:
             self.upload_thread = threading.Thread(target = self.run_upload, daemon=False)                   # Must finish before program exit, no partial uploads
     
     def start(self):
+        self.thread_aliases = {}
+        
         logger.info("Starting client")
 
         self.session_manager = get_session_manager()
@@ -194,13 +197,57 @@ class OctavioClient:
         if self.do_upload:
             self.upload_thread.start()
 
+        current_process = psutil.Process(os.getpid())
+        threads = current_process.threads()
+        print(threads)
+
+        def get_thread_cpu_usage(interval=10.0):
+            p = psutil.Process(os.getpid())
+
+            # First snapshot: Total process CPU time and individual thread times
+            t1_proc = sum(p.cpu_times())
+            t1_threads = {t.id: t.user_time + t.system_time for t in p.threads()}
+
+            time.sleep(interval)
+
+            # Second snapshot
+            t2_proc = sum(p.cpu_times())
+            t2_threads = {t.id: t.user_time + t.system_time for t in p.threads()}
+
+            # Total process utilization percentage over the interval
+            proc_percent = p.cpu_percent()
+            print(proc_percent)
+
+            proc_time_delta = t2_proc - t1_proc
+            if proc_time_delta <= 0:
+                return {}
+
+            # Distribute the overall process CPU % among the threads
+            thread_percentages = {}
+            for t_id, t2_time in t2_threads.items():
+                t1_time = t1_threads.get(t_id, 0)
+                thread_time_delta = t2_time - t1_time
+
+                # Percentage = (Thread Time Delta / Total Process Time Delta) * Total Process CPU %
+                thread_percentages[t_id] = (
+                    thread_time_delta / proc_time_delta
+                )
+
+            return thread_percentages
+
+
+        # Example execution
+        print(get_thread_cpu_usage())
+        print(self.thread_aliases)
+
     def handle_shutdown_signal(self, signum, frame):
         logger.info(f'Received signal {signum}. Shutting down...')
-        self.exit_flag.set()
+        self.shutdown_requested.set()
     
     def run_heartbeat(self):
+        self.thread_aliases[threading.get_native_id()] = "run_heartbeat"
         logger.info("Heartbeat script running")
-        while not self.exit_flag.wait(timeout=30):
+        while not self.shutdown_requested.wait(timeout=10):
             if self.use_server:
                 logger.info(f"Sending heartbeat to {self.heartbeat_endpoint_url}")
                 request_data = {
@@ -228,12 +275,13 @@ class OctavioClient:
     
     # def run_session_manager(self): #TODO: currently unused, current session manager is fully synchronous and only updates on actions involving session state
     #     session_manager = get_session_manager()
-    #     while not self.exit_flag.wait(timeout=4):
+    #     while not self.shutdown_requested.wait(timeout=4):
     #         logger.info("I'm managing the session")
     #         session_manager.handle_recording_activity()
     #     logger.info("Session manager successfully exited")
 
     def run_recording(self):
+        self.thread_aliases[threading.get_native_id()] = "run_recording"
         
         p = pyaudio.PyAudio()
 
@@ -267,7 +315,7 @@ class OctavioClient:
                 return (None, pyaudio.paAbort)
 
         # Starting PyAudio recording in non-blocking mode (runs stream_callback in a separate thread)
-        CHUNK = 4096 # TODO: refactor to use config
+        FRAMES_PER_BUFFER = 4096 # TODO: refactor to use config
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
         
@@ -277,41 +325,92 @@ class OctavioClient:
             rate=sampling_rate,
             input=True, 
             input_device_index=device_index, 
-            frames_per_buffer=CHUNK,
+            frames_per_buffer=FRAMES_PER_BUFFER,
             stream_callback=stream_callback # non-blocking mode
         )
-
+        chunk_start_time = datetime.datetime.now()
+        chunk_ctr = 0
         logger.info("Recording... Press Ctrl+C to stop.")
+
+        CHUNK_DURATION = 10 # 30 seconds
+
+        buffers_per_chunk = int(CHUNK_DURATION * sampling_rate / FRAMES_PER_BUFFER)
 
         audio_buffers = []
 
-        while not self.exit_flag.is_set():
+        save_paths = [pathlib.Path(sys.path[0]) / "client" / "recordings_transcription_queue"]
+
+        while not self.shutdown_requested.is_set():
             buffer_bytes = buffers_to_concatenate.get()
             samples = np.frombuffer(buffer_bytes, dtype=np.int16)
-                
-            logger.info(f"Captured {len(buffer_bytes)} bytes")
-
+            
             audio_buffers.append(samples)
+
+            # Once enough buffers accumulated for given duration chunk, write chunk to .wav file(s)
+            if len(audio_buffers) >= buffers_per_chunk:
+                file_name = f"{chunk_start_time:%Y.%m.%d-%H.%M.%S}.wav"
+                chunk_start_time = datetime.datetime.now()  # Update ASAP for next chunk before doing additional processing
+
+                self.session_manager.handle_recording_activity()
+                session_id = self.session_manager.get_session_id()
+
+                if session_id:
+                    logger.info(f"Audio chunk captured in session {session_id}")
+                    chunk_ctr += 1
+
+                    audio_frames = np.concatenate(audio_buffers)
+                    audio_buffers = []
+
+                    for save_path in save_paths:
+                        if not os.path.exists(save_path):
+                            os.makedirs(save_path)
+                            
+                        file_path = save_path / file_name
+
+                        chunk_start_time = datetime.datetime.now()
+
+                        scipy.io.wavfile.write(file_path, sampling_rate, audio_frames)
+                        logger.info(f"Successfully write audio chunk to {file_path}")
+                    logger.info("Privacy has been requested, recording chunk discarded")
+
+                
+
 
         # Clean up resources safely
         stream.stop_stream()
         stream.close()
         p.terminate()
-
-        audio_frames = np.concatenate(audio_buffers)
-
-        print(audio_frames)
-
-        write("output.wav", sampling_rate, audio_frames)
+        
         logger.info("Recording successfully exited")
 
     def run_transcription(self):
-        while not self.exit_flag.wait(timeout=6):
+        self.thread_aliases[threading.get_native_id()] = "run_transcription"
+
+        audio_path = pathlib.Path(sys.path[0]) / "client" / "recordings_transcription_queue"
+        save_paths = [pathlib.Path(sys.path[0]) / "client" / "transcriptions_upload_queue"]
+
+        file_names = sorted([p.name for p in audio_path.iterdir() if p.suffix == ".wav"])
+        for file_name in file_names:
+            for save_path in save_paths:
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                self.Model.transcribe(audio_path / file_name, (save_path / file_name).with_suffix(".mid"))
+
+                if config["TRANSCRIPTION_PARAMS.KEEP_TRANSCRIBED_AUDIO"]:
+                    audio_save_path = pathlib.Path(sys.path[0]) / "client" / "recordings_saved" / file_name
+                    audio_source = audio_path / file_name
+                    audio_source.rename(audio_save_path)
+                else:
+                    audio_source.unlink()
+
+        while not self.shutdown_requested.wait(timeout=6):
             logger.info("I'm transcribing")
         logger.info("Transcription successfully exited")
 
     def run_upload(self):
-        while not self.exit_flag.wait(timeout=7):
+        self.thread_aliases[threading.get_native_id()] = "run_upload"
+
+        while not self.shutdown_requested.wait(timeout=7):
             logger.info("I'm uploading")
         logger.info("Uploading successfully exited")
 
