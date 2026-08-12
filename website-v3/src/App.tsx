@@ -65,19 +65,19 @@ function App() {
     setSessionIds(new_session_ids);
   }
 
-  async function fetchSessionDates(){
-    const instrumentDataUrl = `${SERVER_URL}/api/all`
-    const allDates = new Array<Date>();
-    const response = await fetch(instrumentDataUrl)
-    // const response_json = await response.json() //JSON.parse(await response.text());
-    console.log(await response.text());
-  }
+  // async function fetchSessionDates(){
+  //   const instrumentDataUrl = `${SERVER_URL}/api/all`
+  //   const allDates = new Array<Date>();
+  //   const response = await fetch(instrumentDataUrl)
+  //   // const response_json = await response.json() //JSON.parse(await response.text());
+  //   console.log(await response.text());
+  // }
 
   function init() {
     fetchOnlineInstruments();
     fetchInstrumentChoices();
     // fetchLatestSessions('10');
-    fetchSessionDates();
+    // fetchSessionDates();
     fetchLog();
   }
 
@@ -108,7 +108,7 @@ function App() {
           <div className="last-sessions">{'Sessions: \n' + latest_sessions}</div>
         </details>
       </div> */}
-      <DateSelector notificationDates={new Array<Date>()}/>
+      {/* <DateSelector notificationDates={new Array<Date>()}/> */}
       <InstrumentSelector all_instruments={instrument_choices}/>
     </>
   )

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Select from 'react-select';
+import DateSelector from './DateSelector';
 
 import { useNavigate } from 'react-router';
 
@@ -73,6 +74,7 @@ const InstrumentSelector = ({ all_instruments }) => {
 
   return (
     <div style={{ maxWidth: '400px', margin: '20px auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      <DateSelector notificationDates={[]}/>
       <div>
         <label>Select Instrument:</label>
         <Select
